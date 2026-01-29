@@ -1,0 +1,26 @@
+{
+  "audio": {
+    "src": "assets/audio/sample.mp3",
+    "duration": 15
+  },
+  "laneId": "lane_circle",
+  "notes": [
+    { "t": 2.0, "type": "tap", "key": "W" },
+    { "t": 3.0, "type": "tap", "key": "A" },
+    { "t": 4.0, "type": "tap", "key": "S" },
+    { "t": 5.0, "type": "tap", "key": "D" },
+    { "t": 6.0, "type": "tap", "key": "W" },
+    { "t": 6.5, "type": "tap", "key": "A" },
+    { "t": 7.0, "type": "tap", "key": "S" },
+    { "t": 7.5, "type": "tap", "key": "D" },
+    { "t": 8.0, "type": "tap", "key": "W" },
+    { "t": 8.25, "type": "tap", "key": "A" },
+    { "t": 8.5, "type": "tap", "key": "S" },
+    { "t": 8.75, "type": "tap", "key": "D" },
+    { "t": 9.0, "type": "tap", "key": "W" },
+    { "t": 10.0, "type": "tap", "key": "D" },
+    { "t": 11.0, "type": "tap", "key": "S" },
+    { "t": 12.0, "type": "tap", "key": "A" },
+    { "t": 13.0, "type": "tap", "key": "W" }
+  ]
+}
