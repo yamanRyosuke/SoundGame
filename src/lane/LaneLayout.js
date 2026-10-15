@@ -1,10 +1,10 @@
 // One ordering and palette for the path, notes, cursor and timing guide.
 export const LANE_SPACING = 0.36;
 export const LANES = [
-  { key: 'A', color: 0xff4488 },
-  { key: 'W', color: 0x4488ff },
-  { key: 'S', color: 0x44ff88 },
-  { key: 'D', color: 0xffaa44 }
+  { key: 'A', color: 0xad405d },
+  { key: 'W', color: 0x376b9b },
+  { key: 'S', color: 0x39754e },
+  { key: 'D', color: 0x996122 }
 ].map((lane, i) => ({ ...lane, offset: (i - 1.5) * LANE_SPACING }));
 
 export function laneForKey(key) {
@@ -27,7 +27,7 @@ export function createLaneLayout(count = 4) {
     const keys = LANES.slice(nextKey, nextKey + size).map(lane => lane.key);
     nextKey += size;
     return { index, key: keys[0], keys, label: keys.join(' / '),
-      color: keys.length === 1 ? laneForKey(keys[0]).color : 0xaab8d0,
+      color: keys.length === 1 ? laneForKey(keys[0]).color : 0x625e58,
       offset: (index - (count - 1) / 2) * LANE_SPACING };
   });
 }

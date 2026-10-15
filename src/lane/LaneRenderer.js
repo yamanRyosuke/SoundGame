@@ -1,28 +1,24 @@
 import * as THREE from 'three';
 import { laneForKey } from './LaneLayout.js';
+import { createPencilMaterial } from './PencilMaterial.js';
 
 export class LaneRenderer {
   constructor(parallelLanes) {
     this.group = new THREE.Group();
     this.group.name = 'LaneRenderer';
     for (const lane of parallelLanes.lanes) this._createLane(parallelLanes, lane);
-    const bounds = new THREE.Box3().setFromPoints(parallelLanes.points);
-    const size = bounds.getSize(new THREE.Vector3());
-    const gridSize = Math.ceil(Math.max(size.x, size.z, 8) / 2) * 2 + 4;
-    const grid = new THREE.GridHelper(gridSize, gridSize, 0x333344, 0x222233);
-    bounds.getCenter(grid.position);
-    grid.position.y = -0.04;
-    this.group.add(grid);
   }
 
   _createLane(layout, lane) {
     const points = layout.getLanePoints(lane.key);
     // A narrow ribbon has a reliable width in WebGL, unlike LineBasicMaterial.linewidth.
-    const vertices = [], indices = [];
+    const vertices = [], indices = [], uvs = [];
     points.forEach((point, i) => {
-      const side = layout.laterals[i].clone().multiplyScalar(0.025);
+      const side = layout.laterals[i].clone().multiplyScalar(0.105);
       vertices.push(point.x - side.x, point.y, point.z - side.z,
         point.x + side.x, point.y, point.z + side.z);
+      const distance = layout.centerline.cumulativeDistances[i];
+      uvs.push(distance, -1, distance, 1);
       if (i < points.length - 1) {
         const j = i * 2;
         indices.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
@@ -30,8 +26,9 @@ export class LaneRenderer {
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
-    const material = new THREE.MeshBasicMaterial({ color: lane.color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+    const material = createPencilMaterial(lane.color, 13 + lane.index * 17);
     const line = new THREE.Mesh(geometry, material);
     line.name = `Lane_${lane.key}`;
     this.group.add(line);

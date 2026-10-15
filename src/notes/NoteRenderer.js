@@ -16,10 +16,10 @@ import { laneForKey } from '../lane/LaneLayout.js';
  * 判定結果の色
  */
 const JUDGEMENT_COLORS = {
-  perfect: 0xffff00,
-  great: 0x00ff00,
-  good: 0x00ffff,
-  miss: 0xff0000
+  perfect: 0x996122,
+  great: 0x39754e,
+  good: 0x376b9b,
+  miss: 0xad405d
 };
 
 // テキストラベル用のテクスチャキャッシュ
@@ -45,7 +45,7 @@ function createLabelTexture(key) {
   ctx.clearRect(0, 0, size, size);
 
   // テキスト
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = '#302d29';
   ctx.font = 'bold 48px Arial';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -132,7 +132,7 @@ export class NoteRenderer {
 
     // 輪郭
     const edgeGeometry = new THREE.EdgesGeometry(geometry);
-    const edgeMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x302d29 });
     const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
     noteGroup.add(edges);
 

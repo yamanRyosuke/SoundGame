@@ -17,7 +17,7 @@ export class GameRenderer {
 
     // Scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1a2e);
+    this.scene.background = new THREE.Color(0xfbfaf7);
 
     // Camera (上から見下ろす視点)
     const aspect = window.innerWidth / window.innerHeight;

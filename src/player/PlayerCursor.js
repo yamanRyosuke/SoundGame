@@ -8,7 +8,7 @@ export class PlayerCursor {
     this.group = new THREE.Group();
     this.group.name = 'PlayerCursor';
     this.bar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.025, 0.045),
-      new THREE.MeshBasicMaterial({ color: 0xfff3b0 }));
+      new THREE.MeshBasicMaterial({ color: 0x302d29 }));
     this.group.add(this.bar);
     this.markers = this.lanes.map(lane => {
       const geometry = new THREE.RingGeometry(0.075, 0.105, 20);

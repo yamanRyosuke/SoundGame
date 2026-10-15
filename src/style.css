@@ -11,7 +11,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
-  background-color: #1a1a2e;
+  background-color: #fbfaf7;
 }
 
 #app {
@@ -36,11 +36,11 @@ canvas {
 }
 
 #time-display {
-  color: #fff;
+  color: #3c3832;
   font-size: 14px;
   font-weight: 500;
   font-family: 'Menlo', 'Monaco', monospace;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(255, 254, 251, 0.9);
   padding: 8px 12px;
   border-radius: 4px;
   display: inline-block;
@@ -57,7 +57,7 @@ canvas {
   font-size: 18px;
   font-weight: 600;
   color: white;
-  background: #1e66ff;
+  background: #476f60;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -66,7 +66,7 @@ canvas {
 }
 
 #start-button:hover {
-  background: #0d4fd8;
+  background: #36594c;
 }
 
 #start-button:disabled {
@@ -80,40 +80,40 @@ canvas {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: #fff;
+  color: #3c3832;
   font-size: 18px;
   z-index: 200;
 }
 
 [hidden] { display: none !important; }
-.game-hud { position: fixed; top: 22px; left: 24px; z-index: 3; color: #eef3ff; line-height: 1.8; pointer-events: none; }
-.game-hud strong { letter-spacing: 0.12em; font-size: 13px; color: #64e4ce; }
+.game-hud { position: fixed; top: 22px; left: 24px; z-index: 3; color: #3c3832; line-height: 1.8; pointer-events: none; }
+.game-hud strong { letter-spacing: 0.12em; font-size: 13px; color: #476f60; }
 #judgement { font-size: 25px; min-height: 45px; font-weight: bold; }
-#judgement[data-judgement="miss"] { color: #ff7985; }
-.studio-panel { position: fixed; z-index: 5; right: 20px; top: 20px; bottom: 165px; width: 310px; padding: 20px; overflow-y: auto; border: 1px solid #39405c; border-radius: 16px; background: #111827ed; color: #e8eefb; box-shadow: 0 12px 40px #0004; }
+#judgement[data-judgement="miss"] { color: #ad405d; }
+.studio-panel { position: fixed; z-index: 5; right: 20px; top: 20px; bottom: 165px; width: 310px; padding: 20px; overflow-y: auto; border: 1px solid #d8d3c9; border-radius: 16px; background: #fffefbf2; color: #3c3832; box-shadow: 0 12px 40px #54452d0d; }
 .studio-panel h1 { font-size: 20px; margin-bottom: 8px; }
 .studio-panel label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin: 10px 0; flex: 1; min-width: 0; }
-.studio-panel input, .studio-panel select, .studio-panel button { width: 100%; padding: 8px; border: 1px solid #454e6b; border-radius: 7px; background: #202b43; color: #f0f4ff; font: inherit; }
+.studio-panel input, .studio-panel select, .studio-panel button { width: 100%; padding: 8px; border: 1px solid #ccc6bb; border-radius: 7px; background: #f8f6f1; color: #39362f; font: inherit; }
 .studio-panel input[type="file"] { font-size: 11px; }
 .studio-panel button { cursor: pointer; margin: 5px 0; font-size: 13px; }
-.studio-panel .primary { color: #10232a; background: #64e4ce; font-weight: bold; }
+.studio-panel .primary { color: #ffffff; background: #476f60; font-weight: bold; }
 .studio-panel :disabled { opacity: 0.45; cursor: default; }
 .studio-panel .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: center; }
-.studio-panel .hint { color: #a8b5cc; font-size: 11px; line-height: 1.6; }
-.studio-panel .filename { color: #64e4ce; overflow-wrap: anywhere; font-size: 12px; }
+.studio-panel .hint { color: #746d61; font-size: 11px; line-height: 1.6; }
+.studio-panel .filename { color: #476f60; overflow-wrap: anywhere; font-size: 12px; }
 .studio-panel #status { font-size: 12px; line-height: 1.6; margin: 12px 0; min-height: 38px; }
-.studio-panel #overview { width: 100%; height: 45px; background: #0c1220; border-radius: 5px; margin-bottom: 8px; }
-.studio-panel details { margin-top: 14px; border-top: 1px solid #39405c; padding-top: 12px; font-size: 12px; }
+.studio-panel #overview { width: 100%; height: 45px; background: #f1eee7; border-radius: 5px; margin-bottom: 8px; }
+.studio-panel details { margin-top: 14px; border-top: 1px solid #d8d3c9; padding-top: 12px; font-size: 12px; }
 .studio-panel .file-button { font-size: 12px; }
-.timing-strip { position: fixed; bottom: 18px; left: 24px; right: 24px; background: #101827ed; border: 1px solid #39405c; border-radius: 12px; padding: 12px 18px; z-index: 4; color: #b8c9e0; }
+.timing-strip { position: fixed; bottom: 18px; left: 24px; right: 24px; background: #fffefbf2; border: 1px solid #d8d3c9; border-radius: 12px; padding: 12px 18px; z-index: 4; color: #665f54; }
 .timing-strip p { font-size: 12px; margin-bottom: 6px; }
 .timing-strip canvas { width: 100%; height: 90px; }
 .lane-legend { display: flex; gap: 12px; align-items: center; font-weight: bold; }
-.lane-group { padding: 0 7px; border: 1px solid #454e6b; border-radius: 5px; }
-.lane-legend small { font-size: 11px; font-weight: normal; color: #a8b5cc; }
+.lane-group { padding: 0 7px; border: 1px solid #ccc6bb; border-radius: 5px; }
+.lane-legend small { font-size: 11px; font-weight: normal; color: #746d61; }
 #start-button { left: 24px; top: 160px; transform: none; padding: 10px 20px; font-size: 14px; }
-#stop-button { position: fixed; left: 24px; top: 160px; z-index: 4; background: #26314b; color: white; border: 1px solid #596480; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
-.result { position: fixed; left: 24px; top: 210px; right: 360px; z-index: 4; color: white; white-space: pre-line; padding: 18px; background: #101827ed; border: 1px solid #64e4ce; border-radius: 12px; line-height: 1.8; }
+#stop-button { position: fixed; left: 24px; top: 200px; z-index: 4; background: #eeeae1; color: #3c3832; border: 1px solid #bdb5a7; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
+.result { position: fixed; left: 24px; top: 210px; right: 360px; z-index: 4; color: #3c3832; white-space: pre-line; padding: 18px; background: #fffefbf2; border: 1px solid #476f60; border-radius: 12px; line-height: 1.8; }
 @media (max-width: 700px) {
   .studio-panel { width: 255px; right: 10px; top: 100px; bottom: 165px; padding: 12px; }
   .studio-panel.playing { display: none; }
@@ -121,4 +121,20 @@ canvas {
   #start-button { left: 60px; font-size: 13px; padding: 12px; }
   .result { right: 280px; left: 10px; font-size: 11px; padding: 8px; }
   .timing-strip { left: 10px; right: 10px; }
+}
+
+/* A static, faint paper tooth over the scene; controls remain above it. */
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.075;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%238b8273' filter='url(%23paper)' opacity='.65' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
+}
+.studio-panel input:focus-visible, .studio-panel select:focus-visible,
+.studio-panel button:focus-visible, #start-button:focus-visible, #stop-button:focus-visible {
+  outline: 2px solid #476f60;
+  outline-offset: 2px;
 }

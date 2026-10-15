@@ -384,7 +384,7 @@ export class Game {
         ctx.fillText(key, 60 + (k - (lane.keys.length - 1) / 2) * 26, y);
       });
     });
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(160, 2, 2, 116);
+    ctx.fillStyle = '#302d29'; ctx.fillRect(160, 2, 2, 116);
     for (const note of this.chart?.notes || []) {
       const dt = note.t - time;
       if (note.judged || dt < -0.3 || dt > 3) continue;
@@ -392,7 +392,7 @@ export class Game {
       const lane = laneForKey(note.key), row = this.parallelLanes.laneForKey(note.key).index;
       const y = (row + 0.5) * 120 / this.laneCount;
       ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0'); ctx.fillRect(x - 13, y - 12, 26, 24);
-      ctx.fillStyle = '#101421'; ctx.fillText(note.key, x, y);
+      ctx.fillStyle = '#ffffff'; ctx.fillText(note.key, x, y);
     }
   }
 
