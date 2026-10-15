@@ -163,12 +163,10 @@ export class NoteRenderer {
    * ノーツの表示を更新（判定済みノーツを非表示に）
    * @param {import('../chart/Chart.js').Chart} chart
    */
-  update(chart) {
+  update(chart, time = 0) {
     chart.notes.forEach(note => {
       const entry = this.noteMeshes.get(note.t);
-      if (entry && note.judged) {
-        entry.mesh.visible = false;
-      }
+      if (entry) entry.mesh.visible = !note.judged && note.t >= time - 0.3 && note.t <= time + 4;
     });
 
     // エフェクトの更新
@@ -248,7 +246,7 @@ export class NoteRenderer {
       entry.mesh.traverse(child => {
         if (child.geometry) child.geometry.dispose();
         if (child.material) {
-          if (child.material.map) child.material.map.dispose();
+          // Label textures are shared by every note and replay.
           child.material.dispose();
         }
       });

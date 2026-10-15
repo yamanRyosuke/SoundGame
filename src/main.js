@@ -19,7 +19,7 @@ const CONFIG = {
   defaultBPM: 120,
 
   // 譜面設定
-  chartProvider: 'auto',
+  chartProvider: 'musical',
   chartUrl: './assets/charts/chart_circle_sample.json'
 };
 

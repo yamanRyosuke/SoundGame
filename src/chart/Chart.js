@@ -49,6 +49,7 @@ export class Chart {
   constructor(data) {
     this.audio = data.audio;
     this.laneId = data.laneId;
+    this.generation = data.generation || null;
 
     // ノーツを時刻順にソートしてコピー
     this.notes = [...data.notes].sort((a, b) => a.t - b.t);

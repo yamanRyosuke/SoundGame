@@ -74,6 +74,7 @@ export class GameRenderer {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    this.render();
   }
 
   /**
