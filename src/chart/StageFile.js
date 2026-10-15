@@ -19,7 +19,7 @@ export function parseStage(text, audio, laneId, supportedLaneIds = [laneId]) {
   if (!Array.isArray(data.notes) || data.notes.length > 10000) throw new Error('ノーツ数が不正です');
   let previous = -Infinity;
   for (const note of data.notes) {
-    if (!note || !Number.isFinite(note.t) || note.t < 0 || note.t > audio.duration - 0.05 || note.t - previous < 0.05 || note.type !== 'tap' || !['W', 'A', 'S', 'D'].includes(note.key)) throw new Error('ノーツの時刻・種類・キーが不正です');
+    if (!note || !Number.isFinite(note.t) || note.t < 0 || note.t > audio.duration - 0.05 || note.t - previous < 0.05 - 1e-9 || note.type !== 'tap' || !['W', 'A', 'S', 'D'].includes(note.key)) throw new Error('ノーツの時刻・種類・キーが不正です');
     previous = note.t;
   }
   if (!Number.isFinite(data.offsetMs) || Math.abs(data.offsetMs) > 250) throw new Error('同期補正が不正です');

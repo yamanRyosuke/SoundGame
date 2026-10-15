@@ -11,6 +11,7 @@ export class AudioManager {
     this._pausePosition = 0;
     this._playStartTime = 0;
     this.meta = null;
+    this.originalFile = null;
   }
 
   async loadAudio(url) {
@@ -29,11 +30,14 @@ export class AudioManager {
     const Context = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     const decoder = new Context(1, 1, 44100);
     const hashBytes = await crypto.subtle.digest('SHA-256', bytes);
+    // decodeAudioData may detach its ArrayBuffer. Retain the encoded file first.
+    const originalFile = new Blob([bytes]);
     const buffer = await decoder.decodeAudioData(bytes);
     if (!buffer.duration || buffer.duration > 900) throw new Error('音源は15分以内にしてください');
     const hash = Array.from(new Uint8Array(hashBytes), b => b.toString(16).padStart(2, '0')).join('');
     this.stop();
     this.audioBuffer = buffer;
+    this.originalFile = originalFile;
     this.meta = { src: name, name, duration: buffer.duration, hash };
     this.isLoaded = true;
     return buffer.duration;
@@ -49,6 +53,7 @@ export class AudioManager {
     }
     this.stop();
     this.audioBuffer = buffer;
+    this.originalFile = null;
     this.meta = { src: 'dummy', name: 'テスト音源', duration, hash: `dummy-${duration}-${frequency}` };
     this.isLoaded = true;
   }
@@ -115,5 +120,6 @@ export class AudioManager {
     this.audioContext?.close();
     this.audioContext = null;
     this.audioBuffer = null;
+    this.originalFile = null;
   }
 }

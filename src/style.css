@@ -105,6 +105,9 @@ canvas {
 .studio-panel #overview { width: 100%; height: 45px; background: #f1eee7; border-radius: 5px; margin-bottom: 8px; }
 .studio-panel details { margin-top: 14px; border-top: 1px solid #d8d3c9; padding-top: 12px; font-size: 12px; }
 .studio-panel .file-button { font-size: 12px; }
+.studio-panel .stage-library { margin: 14px 0; padding: 12px; border: 1px solid #d8d3c9; border-radius: 9px; background: #f8f6f1; }
+.stage-library summary { cursor: pointer; font-weight: 600; }
+.stage-library #library-status { margin: 8px 0; overflow-wrap: anywhere; }
 .timing-strip { position: fixed; bottom: 18px; left: 24px; right: 24px; background: #fffefbf2; border: 1px solid #d8d3c9; border-radius: 12px; padding: 12px 18px; z-index: 4; color: #665f54; }
 .timing-strip p { font-size: 12px; margin-bottom: 6px; }
 .timing-strip canvas { width: 100%; height: 90px; }
