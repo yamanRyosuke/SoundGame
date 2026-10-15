@@ -1,6 +1,7 @@
 import { GameRenderer } from './GameRenderer.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { LaneLoader } from '../lane/LaneLoader.js';
+import { PREVIEW_COURSES, getPreviewCourse } from '../lane/PreviewCourses.js';
 import { ArcLengthTable } from '../lane/ArcLengthTable.js';
 import { ParallelLanes } from '../lane/ParallelLanes.js';
 import { laneForKey } from '../lane/LaneLayout.js';
@@ -41,9 +42,8 @@ export class Game {
         this.judgementDisplay.dataset.judgement = judgement;
         this._updateScoreDisplay();
       });
-      this.laneData = await LaneLoader.load(config.laneUrl);
-      this.arcLengthTable = new ArcLengthTable(this.laneData.points);
-      this._setLaneCount(this.laneCount);
+      this.originalLane = await LaneLoader.load(config.laneUrl);
+      this._setCourse(PREVIEW_COURSES[0]);
       this.noteRenderer = new NoteRenderer(this.parallelLanes, 1);
       this.renderer.add(this.noteRenderer.getObject());
       document.addEventListener('keydown', this._boundKeyDown);
@@ -56,6 +56,28 @@ export class Game {
   }
 
   settings() { return { difficulty: this.difficultySelect.value, focus: this.focusSelect.value }; }
+
+  _setCourse(course, laneCount = this.laneCount) {
+    this.laneData = course;
+    this.arcLengthTable = new ArcLengthTable(course.points);
+    this._setLaneCount(laneCount);
+    this.courseSelect.value = course === this.originalLane ? 'original' : course.laneId;
+    const ratio = this.arcLengthTable.getTotalLength() / new ArcLengthTable(this.originalLane.points).getTotalLength();
+    this.courseDescription.textContent = `${course.description || '比較用の元の円コース。'} 元の円の約${ratio.toFixed(1)}倍の長さ。`;
+    this.renderer.fitCourse(course.points);
+    this.panel.querySelector('#zoom').value = '1';
+  }
+
+  setCourse(id) {
+    if (this.isRunning || this.isBusy || !this.isLoaded) return;
+    const course = id === 'original' ? this.originalLane : getPreviewCourse(id);
+    if (!course) return;
+    this._setCourse(course);
+    if (this.chart) {
+      this.chart.laneId = course.laneId;
+      this._useChart(this.chart);
+    } else this.renderer.render();
+  }
 
   _setLaneCount(count) {
     const layout = new ParallelLanes(this.arcLengthTable, count);
@@ -72,7 +94,7 @@ export class Game {
     this.renderer.add(cursor.getObject());
     if (this.noteRenderer) this.noteRenderer.parallelLanes = layout;
     this.laneCountSelect.value = String(count);
-    this.laneMapping.textContent = '内側から：' + layout.lanes.map(lane => lane.label).join(' ｜ ');
+    this.laneMapping.textContent = 'レーン順：' + layout.lanes.map(lane => lane.label).join(' ｜ ');
     this.laneLegend.innerHTML = layout.lanes.map(lane => '<span class="lane-group">' + lane.keys.map(key =>
       `<span style="color:#${laneForKey(key).color.toString(16).padStart(6, '0')}">${key}</span>`).join(' ') + '</span>').join('');
     this.timingCanvas.setAttribute('aria-label', `${count}レーンの次に押すキーとタイミング`);
@@ -105,6 +127,7 @@ export class Game {
       chart.audio = audio;
       chart.notes = chart.notes.filter(n => n.t <= audio.duration - 0.25);
     }
+    chart.laneId = this.laneData.laneId;
     this._useChart(chart);
   }
 
@@ -252,6 +275,8 @@ export class Game {
     this.panel.innerHTML = `
       <h1>曲からステージを作る</h1>
       <p class="hint">音の変化を拾って、押しやすい譜面へ。</p>
+      <label>ステージの形<select id="course">${PREVIEW_COURSES.map(course => `<option value="${course.laneId}">${course.name}</option>`).join('')}<option value="original">円（比較用）</option></select></label>
+      <p id="course-description" class="hint"></p>
       <label>レーン数<select id="lane-count"><option value="1">1本</option><option value="2">2本</option><option value="3">3本</option><option value="4" selected>4本</option></select></label>
       <p id="lane-mapping" class="hint" role="status"></p>
       <label>音源を選ぶ<input id="audio-file" type="file" accept="audio/*"></label>
@@ -280,6 +305,8 @@ export class Game {
       </details>`;
     this.container.append(this.panel);
     const q = id => this.panel.querySelector('#' + id);
+    this.courseSelect = q('course'); this.courseDescription = q('course-description');
+    this.courseSelect.onchange = () => this.setCourse(this.courseSelect.value);
     this.laneCountSelect = q('lane-count'); this.laneMapping = q('lane-mapping');
     this.laneCountSelect.onchange = () => this.setLaneCount(Number(this.laneCountSelect.value));
     this.audioFileInput = q('audio-file'); this.audioFileName = q('audio-name');
@@ -312,8 +339,9 @@ export class Game {
       const file = e.target.files[0];
       if (file) this._runTask(async () => {
         if (file.size > 2_000_000) throw new Error('譜面ファイルは2 MB以内にしてください');
-        const { chart, offsetMs, laneCount } = parseStage(await file.text(), this.audioManager.meta, this.laneData.laneId);
-        this._setLaneCount(laneCount);
+        const { chart, offsetMs, laneCount } = parseStage(await file.text(), this.audioManager.meta, this.laneData.laneId,
+          [this.originalLane.laneId, ...PREVIEW_COURSES.map(course => course.laneId)]);
+        this._setCourse(getPreviewCourse(chart.laneId) || this.originalLane, laneCount);
         this.offsetMs = offsetMs; q('offset').value = offsetMs;
         this._useChart(chart);
         this.status.textContent += ' · 保存譜面を読み込みました';

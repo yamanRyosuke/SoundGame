@@ -10,12 +10,12 @@ export function serializeStage(chart, offsetMs = 0, laneCount = 4) {
   }, null, 2);
 }
 
-export function parseStage(text, audio, laneId) {
+export function parseStage(text, audio, laneId, supportedLaneIds = [laneId]) {
   if (text.length > 2_000_000) throw new Error('譜面ファイルは2 MB以内にしてください');
   const data = JSON.parse(text);
   if (!data || data.format !== 'soundgame-stage' || data.version !== 1) throw new Error('対応していない譜面形式です');
   if (!audio?.hash || data.audio?.hash !== audio.hash) throw new Error('この譜面を作った音源を先に選んでください');
-  if (!Number.isFinite(data.audio.duration) || Math.abs(data.audio.duration - audio.duration) > 0.1 || data.laneId !== laneId) throw new Error('音源の長さ、またはレーンが一致しません');
+  if (!Number.isFinite(data.audio.duration) || Math.abs(data.audio.duration - audio.duration) > 0.1 || !supportedLaneIds.includes(data.laneId)) throw new Error('音源の長さ、またはレーンが一致しません');
   if (!Array.isArray(data.notes) || data.notes.length > 10000) throw new Error('ノーツ数が不正です');
   let previous = -Infinity;
   for (const note of data.notes) {
@@ -24,6 +24,6 @@ export function parseStage(text, audio, laneId) {
   }
   if (!Number.isFinite(data.offsetMs) || Math.abs(data.offsetMs) > 250) throw new Error('同期補正が不正です');
   const laneCount = validateLaneCount(data.laneCount === undefined ? 4 : data.laneCount);
-  const chart = new Chart({ audio, laneId, notes: data.notes.map(({ t, type, key }) => ({ t, type, key })), generation: data.generation });
+  const chart = new Chart({ audio, laneId: data.laneId, notes: data.notes.map(({ t, type, key }) => ({ t, type, key })), generation: data.generation });
   return { chart, offsetMs: data.offsetMs, laneCount };
 }

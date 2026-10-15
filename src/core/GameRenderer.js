@@ -28,6 +28,7 @@ export class GameRenderer {
     this.minZoom = 0.3;
     this.maxZoom = 2.0;
     this._basePosition = { x: 0, y: 8, z: 5 };
+    this.target = new THREE.Vector3();
     this._updateCameraPosition();
     this.camera.lookAt(0, 0, 0);
 
@@ -39,6 +40,8 @@ export class GameRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
+    this.renderer.autoClear = false;
+    this._updateViewport();
 
     // Lighting
     this._setupLighting();
@@ -71,9 +74,8 @@ export class GameRenderer {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    this._updateViewport();
     this.render();
   }
 
@@ -81,7 +83,43 @@ export class GameRenderer {
    * シーンをレンダリング
    */
   render() {
+    this.renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    this.renderer.clear();
+    const { x, y, width, height } = this.viewport;
+    this.renderer.setViewport(x, y, width, height);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  _updateViewport() {
+    // Keep the complete preview above the timing strip and left of the studio.
+    const width = Math.max(120, window.innerWidth - (window.innerWidth > 700 ? 370 : 32));
+    const height = Math.max(100, window.innerHeight - 330);
+    this.viewport = { x: 16, y: 165, width, height };
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    if (this.courseBounds) this._fitCamera();
+  }
+
+  fitCourse(points) {
+    this.courseBounds = new THREE.Box3().setFromPoints(points.map(p => new THREE.Vector3(...p))).expandByScalar(1.2);
+    this.zoomLevel = 1;
+    this._fitCamera();
+  }
+
+  _fitCamera() {
+    const bounds = this.courseBounds;
+    bounds.getCenter(this.target);
+    const direction = new THREE.Vector3(0, 1, 0.45).normalize();
+    const up = new THREE.Vector3(0, direction.z, -direction.y);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const tanH = tanV * this.camera.aspect;
+    let distance = 1;
+    for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+      const p = new THREE.Vector3(x, y, z).sub(this.target);
+      distance = Math.max(distance, Math.abs(p.x) / tanH + p.dot(direction), Math.abs(p.dot(up)) / tanV + p.dot(direction));
+    }
+    this._basePosition = direction.multiplyScalar(distance * 1.05);
+    this._updateCameraPosition();
   }
 
   /**
@@ -107,11 +145,11 @@ export class GameRenderer {
   _updateCameraPosition() {
     const scale = 1 / this.zoomLevel;
     this.camera.position.set(
-      this._basePosition.x * scale,
-      this._basePosition.y * scale,
-      this._basePosition.z * scale
+      this.target.x + this._basePosition.x * scale,
+      this.target.y + this._basePosition.y * scale,
+      this.target.z + this._basePosition.z * scale
     );
-    this.camera.lookAt(0, 0, 0);
+    this.camera.lookAt(this.target);
   }
 
   /**

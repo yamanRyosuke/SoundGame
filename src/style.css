@@ -111,8 +111,8 @@ canvas {
 .lane-legend { display: flex; gap: 12px; align-items: center; font-weight: bold; }
 .lane-group { padding: 0 7px; border: 1px solid #454e6b; border-radius: 5px; }
 .lane-legend small { font-size: 11px; font-weight: normal; color: #a8b5cc; }
-#start-button { left: calc((100% - 350px) / 2); }
-#stop-button { position: fixed; left: 24px; top: 200px; z-index: 4; background: #26314b; color: white; border: 1px solid #596480; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
+#start-button { left: 24px; top: 160px; transform: none; padding: 10px 20px; font-size: 14px; }
+#stop-button { position: fixed; left: 24px; top: 160px; z-index: 4; background: #26314b; color: white; border: 1px solid #596480; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
 .result { position: fixed; left: 24px; top: 210px; right: 360px; z-index: 4; color: white; white-space: pre-line; padding: 18px; background: #101827ed; border: 1px solid #64e4ce; border-radius: 12px; line-height: 1.8; }
 @media (max-width: 700px) {
   .studio-panel { width: 255px; right: 10px; top: 100px; bottom: 165px; padding: 12px; }

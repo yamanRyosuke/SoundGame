@@ -6,7 +6,11 @@ export class LaneRenderer {
     this.group = new THREE.Group();
     this.group.name = 'LaneRenderer';
     for (const lane of parallelLanes.lanes) this._createLane(parallelLanes, lane);
-    const grid = new THREE.GridHelper(10, 20, 0x333344, 0x222233);
+    const bounds = new THREE.Box3().setFromPoints(parallelLanes.points);
+    const size = bounds.getSize(new THREE.Vector3());
+    const gridSize = Math.ceil(Math.max(size.x, size.z, 8) / 2) * 2 + 4;
+    const grid = new THREE.GridHelper(gridSize, gridSize, 0x333344, 0x222233);
+    bounds.getCenter(grid.position);
     grid.position.y = -0.04;
     this.group.add(grid);
   }
@@ -16,7 +20,7 @@ export class LaneRenderer {
     // A narrow ribbon has a reliable width in WebGL, unlike LineBasicMaterial.linewidth.
     const vertices = [], indices = [];
     points.forEach((point, i) => {
-      const side = layout.laterals[i].clone().multiplyScalar(0.012);
+      const side = layout.laterals[i].clone().multiplyScalar(0.025);
       vertices.push(point.x - side.x, point.y, point.z - side.z,
         point.x + side.x, point.y, point.z + side.z);
       if (i < points.length - 1) {
@@ -27,7 +31,7 @@ export class LaneRenderer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setIndex(indices);
-    const material = new THREE.MeshBasicMaterial({ color: lane.color, side: THREE.DoubleSide, transparent: true, opacity: 0.65 });
+    const material = new THREE.MeshBasicMaterial({ color: lane.color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
     const line = new THREE.Mesh(geometry, material);
     line.name = `Lane_${lane.key}`;
     this.group.add(line);
