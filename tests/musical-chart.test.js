@@ -81,3 +81,22 @@ test('stage round trip resets judgements and rejects mismatched audio and malfor
     assert.throws(() => parseStage(JSON.stringify(data), audio, 'circle'));
   }
 });
+
+test('stage files preserve lane count and original keys; legacy stages default to four', () => {
+  const audio = { duration: 5, hash: 'original-song' };
+  const notes = ['A', 'W', 'S', 'D'].map((key, i) => ({ t: i + 0.5, key, type: 'tap' }));
+  const chart = new Chart({ audio, laneId: 'circle', notes });
+  for (const count of [1, 2, 3, 4]) {
+    const saved = parseStage(serializeStage(chart, 10, count), audio, 'circle');
+    assert.equal(saved.laneCount, count);
+    assert.deepEqual(saved.chart.notes.map(n => n.key), ['A', 'W', 'S', 'D']);
+    assert.deepEqual(saved.chart.notes.map(n => n.t), [0.5, 1.5, 2.5, 3.5]);
+  }
+  const data = JSON.parse(serializeStage(chart));
+  delete data.laneCount;
+  assert.equal(parseStage(JSON.stringify(data), audio, 'circle').laneCount, 4);
+  for (const laneCount of [0, 5, 2.5, '3', null]) {
+    assert.throws(() => parseStage(JSON.stringify({ ...data, laneCount }), audio, 'circle'));
+    assert.throws(() => serializeStage(chart, 0, laneCount));
+  }
+});

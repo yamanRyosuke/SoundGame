@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { LANES } from './LaneLayout.js';
+import { laneForKey } from './LaneLayout.js';
 
 export class LaneRenderer {
   constructor(parallelLanes) {
     this.group = new THREE.Group();
     this.group.name = 'LaneRenderer';
-    for (const lane of LANES) this._createLane(parallelLanes, lane);
+    for (const lane of parallelLanes.lanes) this._createLane(parallelLanes, lane);
     const grid = new THREE.GridHelper(10, 20, 0x333344, 0x222233);
     grid.position.y = -0.04;
     this.group.add(grid);
@@ -33,14 +33,16 @@ export class LaneRenderer {
     this.group.add(line);
 
     const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
+    canvas.width = 64; canvas.height = 64 * lane.keys.length;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0');
     ctx.font = 'bold 48px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(lane.key, 32, 32);
+    lane.keys.forEach((key, i) => {
+      ctx.fillStyle = '#' + laneForKey(key).color.toString(16).padStart(6, '0');
+      ctx.fillText(key, 32, 32 + 64 * i);
+    });
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
-    label.position.copy(points[0]); label.position.y += 0.28;
-    label.scale.set(0.28, 0.28, 1);
+    label.position.copy(points[0]); label.position.y += 0.18 + 0.11 * lane.keys.length;
+    label.scale.set(0.25, 0.22 * lane.keys.length, 1);
     label.name = `LaneLabel_${lane.key}`;
     this.group.add(label);
   }

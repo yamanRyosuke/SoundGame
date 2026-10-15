@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ArcLengthTable } from '../src/lane/ArcLengthTable.js';
 import { ParallelLanes } from '../src/lane/ParallelLanes.js';
-import { LANES, LANE_SPACING } from '../src/lane/LaneLayout.js';
+import { LANES, LANE_SPACING, createLaneLayout } from '../src/lane/LaneLayout.js';
 import { LaneRenderer } from '../src/lane/LaneRenderer.js';
 import { NoteRenderer } from '../src/notes/NoteRenderer.js';
 import { PlayerCursor } from '../src/player/PlayerCursor.js';
@@ -13,6 +13,17 @@ import { readFileSync } from 'node:fs';
 globalThis.document = { createElement: () => ({ getContext: () => ({ clearRect() {}, fillText() {} }) }) };
 const close = (a, b, epsilon = 1e-6) => assert.ok(Math.abs(a - b) < epsilon, `${a} != ${b}`);
 const layoutFor = points => new ParallelLanes(new ArcLengthTable(points));
+
+test('1–4 lanes distribute every key once in balanced, deterministic groups', () => {
+  const expected = [ [['A', 'W', 'S', 'D']], [['A', 'W'], ['S', 'D']], [['A', 'W'], ['S'], ['D']], [['A'], ['W'], ['S'], ['D']] ];
+  for (let count = 1; count <= 4; count++) {
+    const lanes = createLaneLayout(count);
+    assert.deepEqual(lanes.map(lane => lane.keys), expected[count - 1]);
+    close(lanes[0].offset + lanes.at(-1).offset, 0);
+    for (let i = 1; i < lanes.length; i++) close(lanes[i].offset - lanes[i - 1].offset, LANE_SPACING);
+  }
+  for (const count of [0, 5, 1.5, NaN, '2', null]) assert.throws(() => createLaneLayout(count));
+});
 
 test('four key lanes are equally spaced and assigned consistently on a straight', () => {
   const layout = layoutFor([[0, 0, 0], [0, 0, 10]]);
@@ -57,11 +68,13 @@ test('asymmetric bends use shared time even when lane distances differ', () => {
   }
 });
 
-test('lane ribbons, note, judgement effect and moving bar coincide at every note time', () => {
-  const layout = layoutFor([[0, 1, 0], [0, 1, 4], [3, 2, 6], [5, 2, 3]]);
+for (const count of [1, 2, 3, 4]) test(`${count} lanes: ribbons, all four keys, effects and moving bar coincide`, () => {
+  const layout = new ParallelLanes(new ArcLengthTable([[0, 1, 0], [0, 1, 4], [3, 2, 6], [5, 2, 3]]), count);
   const lines = new LaneRenderer(layout);
+  assert.equal(lines.group.children.filter(child => child.name.startsWith('Lane_')).length, count);
   const renderer = new NoteRenderer(layout, 20);
-  const cursor = new PlayerCursor();
+  const cursor = new PlayerCursor(layout.lanes);
+  assert.equal(cursor.markers.length, count);
   for (const t of [0, 1.7, 8, 12.3, 20]) {
     cursor.setFrame(layout.getFrameAtDistance(layout.centerline.getDistanceAtTime(t, 20)));
     cursor.group.updateMatrixWorld(true);
@@ -71,14 +84,15 @@ test('lane ribbons, note, judgement effect and moving bar coincide at every note
     LANES.forEach((lane, i) => {
       const note = chart.notes[i];
       const p = renderer.noteMeshes.get(note).mesh.position;
-      const marker = cursor.markers[i].getWorldPosition(new THREE.Vector3());
+      const assignedLane = layout.laneForKey(note.key);
+      const marker = cursor.markers[assignedLane.index].getWorldPosition(new THREE.Vector3());
       close(p.x, marker.x); close(p.z, marker.z); close(marker.y - p.y, 0.05);
       renderer.showJudgementEffect(note, 'perfect');
       const effect = renderer.effects.at(-1).mesh.position;
       close(effect.x, p.x); close(effect.z, p.z); close(effect.y - p.y, 0.01);
 
       // The actual rendered ribbon's center at each vertex is the keyed path.
-      const geometry = lines.group.getObjectByName(`Lane_${lane.key}`).geometry;
+      const geometry = lines.group.getObjectByName(`Lane_${assignedLane.key}`).geometry;
       const vertices = geometry.attributes.position;
       layout.getLanePoints(lane.key).forEach((expected, j) => {
         const a = new THREE.Vector3().fromBufferAttribute(vertices, j * 2);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LANES, laneForKey } from './LaneLayout.js';
+import { createLaneLayout } from './LaneLayout.js';
 
 /**
  * All four lanes use the CENTER path's arc-length clock. Never build individual
@@ -8,7 +8,8 @@ import { LANES, laneForKey } from './LaneLayout.js';
  * places lane lines, notes, effects and the judgement bar at a given music time.
  */
 export class ParallelLanes {
-  constructor(centerline) {
+  constructor(centerline, laneCount = 4) {
+    this.lanes = createLaneLayout(laneCount);
     this.centerline = centerline;
     this.points = centerline.points;
     if (centerline.getTotalLength() <= 1e-8) throw new Error('レーンに長さがありません');
@@ -61,7 +62,7 @@ export class ParallelLanes {
 
   getPositionAtDistance(distance, key) {
     const { center, lateral } = this.getFrameAtDistance(distance);
-    return center.addScaledVector(lateral, laneForKey(key).offset);
+    return center.addScaledVector(lateral, this.laneForKey(key).offset);
   }
 
   getPositionAtTime(time, duration, key) {
@@ -69,9 +70,13 @@ export class ParallelLanes {
   }
 
   getLanePoints(key) {
-    const offset = laneForKey(key).offset;
+    const offset = this.laneForKey(key).offset;
     return this.points.map((point, i) => point.clone().addScaledVector(this.laterals[i], offset));
   }
 
-  get lanes() { return LANES; }
+  laneForKey(key) {
+    const lane = this.lanes.find(lane => lane.keys.includes(key));
+    if (!lane) throw new Error(`Unknown lane key: ${key}`);
+    return lane;
+  }
 }

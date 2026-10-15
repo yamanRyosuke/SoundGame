@@ -1,9 +1,11 @@
 import { Chart } from './Chart.js';
+import { validateLaneCount } from '../lane/LaneLayout.js';
 
-export function serializeStage(chart, offsetMs = 0) {
+export function serializeStage(chart, offsetMs = 0, laneCount = 4) {
+  validateLaneCount(laneCount);
   return JSON.stringify({
     format: 'soundgame-stage', version: 1, audio: chart.audio, laneId: chart.laneId,
-    generation: chart.generation, offsetMs,
+    generation: chart.generation, offsetMs, laneCount,
     notes: chart.notes.map(({ t, type, key }) => ({ t, type, key }))
   }, null, 2);
 }
@@ -21,6 +23,7 @@ export function parseStage(text, audio, laneId) {
     previous = note.t;
   }
   if (!Number.isFinite(data.offsetMs) || Math.abs(data.offsetMs) > 250) throw new Error('同期補正が不正です');
+  const laneCount = validateLaneCount(data.laneCount === undefined ? 4 : data.laneCount);
   const chart = new Chart({ audio, laneId, notes: data.notes.map(({ t, type, key }) => ({ t, type, key })), generation: data.generation });
-  return { chart, offsetMs: data.offsetMs };
+  return { chart, offsetMs: data.offsetMs, laneCount };
 }

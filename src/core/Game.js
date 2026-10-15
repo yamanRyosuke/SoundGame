@@ -3,7 +3,7 @@ import { AudioManager } from '../audio/AudioManager.js';
 import { LaneLoader } from '../lane/LaneLoader.js';
 import { ArcLengthTable } from '../lane/ArcLengthTable.js';
 import { ParallelLanes } from '../lane/ParallelLanes.js';
-import { LANES, laneForKey } from '../lane/LaneLayout.js';
+import { laneForKey } from '../lane/LaneLayout.js';
 import { LaneRenderer } from '../lane/LaneRenderer.js';
 import { PlayerCursor } from '../player/PlayerCursor.js';
 import { JudgeManager } from '../judge/JudgeManager.js';
@@ -21,6 +21,7 @@ export class Game {
     this.isLoaded = false;
     this.chart = null;
     this.offsetMs = 0;
+    this.laneCount = 4;
     this.musicalProvider = new MusicalChartProvider();
     this._boundKeyDown = this._onKeyDown.bind(this);
     this._animationFrameId = null;
@@ -42,11 +43,7 @@ export class Game {
       });
       this.laneData = await LaneLoader.load(config.laneUrl);
       this.arcLengthTable = new ArcLengthTable(this.laneData.points);
-      this.parallelLanes = new ParallelLanes(this.arcLengthTable);
-      this.laneRenderer = new LaneRenderer(this.parallelLanes);
-      this.renderer.add(this.laneRenderer.getObject());
-      this.playerCursor = new PlayerCursor();
-      this.renderer.add(this.playerCursor.getObject());
+      this._setLaneCount(this.laneCount);
       this.noteRenderer = new NoteRenderer(this.parallelLanes, 1);
       this.renderer.add(this.noteRenderer.getObject());
       document.addEventListener('keydown', this._boundKeyDown);
@@ -59,6 +56,36 @@ export class Game {
   }
 
   settings() { return { difficulty: this.difficultySelect.value, focus: this.focusSelect.value }; }
+
+  _setLaneCount(count) {
+    const layout = new ParallelLanes(this.arcLengthTable, count);
+    const renderer = new LaneRenderer(layout);
+    const cursor = new PlayerCursor(layout.lanes);
+    for (const previous of [this.laneRenderer, this.playerCursor]) {
+      if (previous) { this.renderer.remove(previous.getObject()); previous.dispose(); }
+    }
+    this.parallelLanes = layout;
+    this.laneRenderer = renderer;
+    this.playerCursor = cursor;
+    this.laneCount = count;
+    this.renderer.add(renderer.getObject());
+    this.renderer.add(cursor.getObject());
+    if (this.noteRenderer) this.noteRenderer.parallelLanes = layout;
+    this.laneCountSelect.value = String(count);
+    this.laneMapping.textContent = '内側から：' + layout.lanes.map(lane => lane.label).join(' ｜ ');
+    this.laneLegend.innerHTML = layout.lanes.map(lane => '<span class="lane-group">' + lane.keys.map(key =>
+      `<span style="color:#${laneForKey(key).color.toString(16).padStart(6, '0')}">${key}</span>`).join(' ') + '</span>').join('');
+    this.timingCanvas.setAttribute('aria-label', `${count}レーンの次に押すキーとタイミング`);
+    this._updatePlayerPosition(0);
+  }
+
+  setLaneCount(count) {
+    if (this.isRunning || this.isBusy || !this.isLoaded) return;
+    this._setLaneCount(count);
+    // Reposition the existing notes; never regenerate or change their keys/times.
+    if (this.chart) this._useChart(this.chart);
+    else { this._drawTiming(0); this.renderer.render(); }
+  }
 
   async _generate() {
     if (!this.audioManager.audioBuffer) throw new Error('音源を先に選んでください');
@@ -214,16 +241,19 @@ export class Game {
   _createUI() {
     const hud = document.createElement('div');
     hud.className = 'game-hud';
-    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div class="lane-legend">' + LANES.map(lane => `<span style="color:#${lane.color.toString(16).padStart(6, '0')}">${lane.key}</span>`).join('') + '<small>4本で同じ進行位置</small></div><div id="judgement" aria-live="off"></div>';
+    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div class="lane-legend"></div><div id="judgement" aria-live="off"></div>';
     this.container.append(hud);
     this.scoreDisplay = hud.querySelector('#score');
     this.timeDisplay = hud.querySelector('#time');
     this.judgementDisplay = hud.querySelector('#judgement');
+    this.laneLegend = hud.querySelector('.lane-legend');
     this.panel = document.createElement('aside');
     this.panel.className = 'studio-panel';
     this.panel.innerHTML = `
       <h1>曲からステージを作る</h1>
       <p class="hint">音の変化を拾って、押しやすい譜面へ。</p>
+      <label>レーン数<select id="lane-count"><option value="1">1本</option><option value="2">2本</option><option value="3">3本</option><option value="4" selected>4本</option></select></label>
+      <p id="lane-mapping" class="hint" role="status"></p>
       <label>音源を選ぶ<input id="audio-file" type="file" accept="audio/*"></label>
       <p id="audio-name" class="filename"></p>
       <label>譜面の作り方<select id="provider"><option value="musical">音源を解析</option><option value="auto">等間隔（練習用）</option><option value="fixed">サンプル譜面</option></select></label>
@@ -250,6 +280,8 @@ export class Game {
       </details>`;
     this.container.append(this.panel);
     const q = id => this.panel.querySelector('#' + id);
+    this.laneCountSelect = q('lane-count'); this.laneMapping = q('lane-mapping');
+    this.laneCountSelect.onchange = () => this.setLaneCount(Number(this.laneCountSelect.value));
     this.audioFileInput = q('audio-file'); this.audioFileName = q('audio-name');
     this.providerSelect = q('provider'); this.difficultySelect = q('difficulty'); this.focusSelect = q('focus');
     this.bpmInput = q('bpm'); this.densitySelect = q('density'); this.status = q('status');
@@ -271,7 +303,7 @@ export class Game {
     };
     q('zoom').oninput = e => { this.renderer.setZoom(Number(e.target.value)); this.renderer.render(); };
     this.exportButton.onclick = () => {
-      const blob = new Blob([serializeStage(this.chart, this.offsetMs)], { type: 'application/json' });
+      const blob = new Blob([serializeStage(this.chart, this.offsetMs, this.laneCount)], { type: 'application/json' });
       const url = URL.createObjectURL(blob), a = document.createElement('a');
       a.href = url; a.download = `${this.audioManager.meta.name.replace(/\.[^.]+$/, '')}-${this.chart.generation?.difficulty || 'chart'}.json`;
       a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -280,7 +312,8 @@ export class Game {
       const file = e.target.files[0];
       if (file) this._runTask(async () => {
         if (file.size > 2_000_000) throw new Error('譜面ファイルは2 MB以内にしてください');
-        const { chart, offsetMs } = parseStage(await file.text(), this.audioManager.meta, this.laneData.laneId);
+        const { chart, offsetMs, laneCount } = parseStage(await file.text(), this.audioManager.meta, this.laneData.laneId);
+        this._setLaneCount(laneCount);
         this.offsetMs = offsetMs; q('offset').value = offsetMs;
         this._useChart(chart);
         this.status.textContent += ' · 保存譜面を読み込みました';
@@ -294,7 +327,7 @@ export class Game {
     this.stopButton.onclick = () => this.stop(); this.stopButton.hidden = true;
     this.result = document.createElement('div'); this.result.className = 'result'; this.result.hidden = true;
     const timing = document.createElement('section'); timing.className = 'timing-strip';
-    timing.innerHTML = '<p>A / W / S / D · 自分の色のレーンで、目印が判定バーと重なったら押す</p><canvas width="1000" height="120" aria-label="4レーンの次に押すキーとタイミング"></canvas>';
+    timing.innerHTML = '<p>目印が判定バーと重なったら、表示された文字のキーを押す</p><canvas width="1000" height="120" aria-label="次に押すキーとタイミング"></canvas>';
     this.timingCanvas = timing.querySelector('canvas');
     this.container.append(this.startButton, this.stopButton, this.result, timing);
   }
@@ -305,7 +338,8 @@ export class Game {
     for (const note of this.chart.notes) {
       const lane = laneForKey(note.key);
       ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0');
-      ctx.fillRect(note.t / this.audioDuration * w, 6 + LANES.indexOf(lane) * 20, 2, 12);
+      const row = this.parallelLanes.laneForKey(note.key).index;
+      ctx.fillRect(note.t / this.audioDuration * w, (row + 0.5) * h / this.laneCount - 6, 2, 12);
     }
   }
 
@@ -313,18 +347,22 @@ export class Game {
     const ctx = this.timingCanvas.getContext('2d'), w = this.timingCanvas.width;
     ctx.clearRect(0, 0, w, 120);
     ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    LANES.forEach((lane, i) => {
-      const y = 15 + i * 30;
+    this.parallelLanes.lanes.forEach((lane, i) => {
+      const y = (i + 0.5) * 120 / this.laneCount;
       ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0');
-      ctx.globalAlpha = 0.3; ctx.fillRect(60, y, w - 60, 1); ctx.globalAlpha = 1;
-      ctx.fillText(lane.key, 30, y);
+      ctx.globalAlpha = 0.3; ctx.fillRect(125, y, w - 125, 1); ctx.globalAlpha = 1;
+      lane.keys.forEach((key, k) => {
+        ctx.fillStyle = '#' + laneForKey(key).color.toString(16).padStart(6, '0');
+        ctx.fillText(key, 60 + (k - (lane.keys.length - 1) / 2) * 26, y);
+      });
     });
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(100, 2, 2, 116);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(160, 2, 2, 116);
     for (const note of this.chart?.notes || []) {
       const dt = note.t - time;
       if (note.judged || dt < -0.3 || dt > 3) continue;
-      const x = 100 + dt / 3 * (w - 120);
-      const lane = laneForKey(note.key), y = 15 + LANES.indexOf(lane) * 30;
+      const x = 160 + dt / 3 * (w - 180);
+      const lane = laneForKey(note.key), row = this.parallelLanes.laneForKey(note.key).index;
+      const y = (row + 0.5) * 120 / this.laneCount;
       ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0'); ctx.fillRect(x - 13, y - 12, 26, 24);
       ctx.fillStyle = '#101421'; ctx.fillText(note.key, x, y);
     }
