@@ -2,6 +2,8 @@ import { GameRenderer } from './GameRenderer.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { LaneLoader } from '../lane/LaneLoader.js';
 import { ArcLengthTable } from '../lane/ArcLengthTable.js';
+import { ParallelLanes } from '../lane/ParallelLanes.js';
+import { LANES, laneForKey } from '../lane/LaneLayout.js';
 import { LaneRenderer } from '../lane/LaneRenderer.js';
 import { PlayerCursor } from '../player/PlayerCursor.js';
 import { JudgeManager } from '../judge/JudgeManager.js';
@@ -40,11 +42,12 @@ export class Game {
       });
       this.laneData = await LaneLoader.load(config.laneUrl);
       this.arcLengthTable = new ArcLengthTable(this.laneData.points);
-      this.laneRenderer = new LaneRenderer(this.laneData.points);
+      this.parallelLanes = new ParallelLanes(this.arcLengthTable);
+      this.laneRenderer = new LaneRenderer(this.parallelLanes);
       this.renderer.add(this.laneRenderer.getObject());
       this.playerCursor = new PlayerCursor();
       this.renderer.add(this.playerCursor.getObject());
-      this.noteRenderer = new NoteRenderer(this.arcLengthTable, 1);
+      this.noteRenderer = new NoteRenderer(this.parallelLanes, 1);
       this.renderer.add(this.noteRenderer.getObject());
       document.addEventListener('keydown', this._boundKeyDown);
       this.isLoaded = true;
@@ -186,8 +189,7 @@ export class Game {
 
   _updatePlayerPosition(progress) {
     const distance = this.arcLengthTable.getTotalLength() * progress;
-    this.playerCursor.setPosition(this.arcLengthTable.getPositionAtDistance(distance));
-    this.playerCursor.setDirection(this.arcLengthTable.getDirectionAtDistance(distance));
+    this.playerCursor.setFrame(this.parallelLanes.getFrameAtDistance(distance));
   }
 
   _updateScoreDisplay() {
@@ -212,7 +214,7 @@ export class Game {
   _createUI() {
     const hud = document.createElement('div');
     hud.className = 'game-hud';
-    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div id="judgement" aria-live="off"></div>';
+    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div class="lane-legend">' + LANES.map(lane => `<span style="color:#${lane.color.toString(16).padStart(6, '0')}">${lane.key}</span>`).join('') + '<small>4本で同じ進行位置</small></div><div id="judgement" aria-live="off"></div>';
     this.container.append(hud);
     this.scoreDisplay = hud.querySelector('#score');
     this.timeDisplay = hud.querySelector('#time');
@@ -292,7 +294,7 @@ export class Game {
     this.stopButton.onclick = () => this.stop(); this.stopButton.hidden = true;
     this.result = document.createElement('div'); this.result.className = 'result'; this.result.hidden = true;
     const timing = document.createElement('section'); timing.className = 'timing-strip';
-    timing.innerHTML = '<p>W / A / S / D · 目印が白い線に重なったら押す</p><canvas width="1000" height="90" aria-label="次に押すキーとタイミング"></canvas>';
+    timing.innerHTML = '<p>A / W / S / D · 自分の色のレーンで、目印が判定バーと重なったら押す</p><canvas width="1000" height="120" aria-label="4レーンの次に押すキーとタイミング"></canvas>';
     this.timingCanvas = timing.querySelector('canvas');
     this.container.append(this.startButton, this.stopButton, this.result, timing);
   }
@@ -300,28 +302,38 @@ export class Game {
   _drawOverview() {
     const ctx = this.overview.getContext('2d'), w = this.overview.width, h = this.overview.height;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#64e4ce';
-    for (const note of this.chart.notes) ctx.fillRect(note.t / this.audioDuration * w, h - 16 - 'ASWD'.indexOf(note.key) * 16, 2, 12);
+    for (const note of this.chart.notes) {
+      const lane = laneForKey(note.key);
+      ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0');
+      ctx.fillRect(note.t / this.audioDuration * w, 6 + LANES.indexOf(lane) * 20, 2, 12);
+    }
   }
 
   _drawTiming(time) {
     const ctx = this.timingCanvas.getContext('2d'), w = this.timingCanvas.width;
-    ctx.clearRect(0, 0, w, 90);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(100, 4, 2, 82);
-    ctx.font = 'bold 25px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const colors = { W: '#4488ff', A: '#ff4488', S: '#44ff88', D: '#ffaa44' };
+    ctx.clearRect(0, 0, w, 120);
+    ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    LANES.forEach((lane, i) => {
+      const y = 15 + i * 30;
+      ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0');
+      ctx.globalAlpha = 0.3; ctx.fillRect(60, y, w - 60, 1); ctx.globalAlpha = 1;
+      ctx.fillText(lane.key, 30, y);
+    });
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(100, 2, 2, 116);
     for (const note of this.chart?.notes || []) {
       const dt = note.t - time;
       if (note.judged || dt < -0.3 || dt > 3) continue;
       const x = 100 + dt / 3 * (w - 120);
-      ctx.fillStyle = colors[note.key]; ctx.fillRect(x - 17, 24, 34, 42);
-      ctx.fillStyle = '#101421'; ctx.fillText(note.key, x, 46);
+      const lane = laneForKey(note.key), y = 15 + LANES.indexOf(lane) * 30;
+      ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0'); ctx.fillRect(x - 13, y - 12, 26, 24);
+      ctx.fillStyle = '#101421'; ctx.fillText(note.key, x, y);
     }
   }
 
   dispose() {
     this.stop(); this.musicalProvider.cancel();
     document.removeEventListener('keydown', this._boundKeyDown);
-    this.noteRenderer?.dispose(); this.renderer?.dispose(); this.audioManager?.dispose();
+    this.noteRenderer?.dispose(); this.laneRenderer?.dispose(); this.playerCursor?.dispose();
+    this.renderer?.dispose(); this.audioManager?.dispose();
   }
 }

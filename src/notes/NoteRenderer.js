@@ -7,17 +7,11 @@
  * - 判定結果に応じた視覚的フィードバック
  */
 import * as THREE from 'three';
+import { laneForKey } from '../lane/LaneLayout.js';
 
 /**
  * キーごとの色
  */
-const KEY_COLORS = {
-  W: 0x4488ff, // 青
-  A: 0xff4488, // ピンク
-  S: 0x44ff88, // 緑
-  D: 0xffaa44  // オレンジ
-};
-
 /**
  * 判定結果の色
  */
@@ -66,19 +60,18 @@ function createLabelTexture(key) {
 
 export class NoteRenderer {
   /**
-   * @param {import('../lane/ArcLengthTable.js').ArcLengthTable} arcLengthTable
+   * @param {import('../lane/ParallelLanes.js').ParallelLanes} parallelLanes
    * @param {number} audioDuration - 音源の長さ（秒）
    */
-  constructor(arcLengthTable, audioDuration) {
-    this.arcLengthTable = arcLengthTable;
+  constructor(parallelLanes, audioDuration) {
+    this.parallelLanes = parallelLanes;
     this.audioDuration = audioDuration;
-    this.totalLength = arcLengthTable.getTotalLength();
 
     // コンテナ
     this.group = new THREE.Group();
     this.group.name = 'NoteRenderer';
 
-    // ノーツメッシュのマップ（note.t をキーに）
+    // Note identity also distinguishes different keys at the same music time.
     this.noteMeshes = new Map();
 
     // 判定エフェクト用
@@ -97,7 +90,7 @@ export class NoteRenderer {
       const mesh = this._createNoteMesh(note);
       if (mesh) {
         this.group.add(mesh);
-        this.noteMeshes.set(note.t, { mesh, note });
+        this.noteMeshes.set(note, { mesh, note });
       }
     });
 
@@ -112,22 +105,21 @@ export class NoteRenderer {
    */
   _createNoteMesh(note) {
     // 時刻から位置を計算
-    const progress = note.t / this.audioDuration;
-    const distance = this.totalLength * progress;
-    const position = this.arcLengthTable.getPositionAtDistance(distance);
+    const position = this.parallelLanes.getPositionAtTime(note.t, this.audioDuration, note.key);
 
     // ノーツ全体を格納するグループ
     const noteGroup = new THREE.Group();
-    noteGroup.position.set(position.x, 0.02, position.z);
-    noteGroup.name = `Note_${note.t}`;
+    noteGroup.position.copy(position);
+    noteGroup.position.y += 0.02;
+    noteGroup.name = `Note_${note.key}_${note.t}`;
 
     // ジオメトリ（ひし形/ダイヤ）
-    const geometry = new THREE.CircleGeometry(0.18, 4);
+    const geometry = new THREE.CircleGeometry(0.13, 4);
     geometry.rotateX(-Math.PI / 2);
     geometry.rotateY(Math.PI / 4);
 
     // キーに応じた色
-    const color = KEY_COLORS[note.key] || 0xffffff;
+    const color = laneForKey(note.key).color;
     const material = new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
@@ -165,7 +157,7 @@ export class NoteRenderer {
    */
   update(chart, time = 0) {
     chart.notes.forEach(note => {
-      const entry = this.noteMeshes.get(note.t);
+      const entry = this.noteMeshes.get(note);
       if (entry) entry.mesh.visible = !note.judged && note.t >= time - 0.3 && note.t <= time + 4;
     });
 
@@ -179,9 +171,7 @@ export class NoteRenderer {
    * @param {string} judgement
    */
   showJudgementEffect(note, judgement) {
-    const progress = note.t / this.audioDuration;
-    const distance = this.totalLength * progress;
-    const position = this.arcLengthTable.getPositionAtDistance(distance);
+    const position = this.parallelLanes.getPositionAtTime(note.t, this.audioDuration, note.key);
 
     // エフェクト用リング
     const geometry = new THREE.RingGeometry(0.1, 0.2, 16);
@@ -196,7 +186,8 @@ export class NoteRenderer {
     });
 
     const effect = new THREE.Mesh(geometry, material);
-    effect.position.set(position.x, 0.03, position.z);
+    effect.position.copy(position);
+    effect.position.y += 0.03;
 
     this.group.add(effect);
     this.effects.push({
