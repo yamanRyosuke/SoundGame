@@ -39,10 +39,8 @@ export class FixedChartProvider extends ChartProvider {
       };
     }
 
-    // laneId の整合性チェック（警告のみ）
-    if (lane && data.laneId !== lane.laneId) {
-      console.warn(`Chart laneId (${data.laneId}) does not match lane (${lane.laneId})`);
-    }
+    // Sample note times/keys can be previewed on any selected course.
+    if (lane) data.laneId = lane.laneId;
 
     return new Chart(data);
   }
