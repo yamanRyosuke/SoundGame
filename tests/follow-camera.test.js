@@ -51,13 +51,13 @@ test('camera distance setting scales the follow span and overview skips followin
   const { Game } = await import('../src/core/Game.js');
   const lanes = new ParallelLanes(new ArcLengthTable(PREVIEW_COURSES[0].points), 4);
   const spans = [];
-  const game = { arcLengthTable: lanes.centerline, parallelLanes: lanes, audioDuration: 60, cameraMode: 'chase',
+  const game = { parallelLanes: lanes, cameraMode: 'chase',
     renderer: { follow: (center, forward, span) => spans.push(span) } };
   for (const distance of [0.5, 1, 2]) {
     game.cameraDistance = distance;
     Game.prototype._updateCamera.call(game, 0.3);
   }
-  const base = followSpan(lanes.centerline.getTotalLength() / 60);
+  const base = followSpan(lanes.speed);
   assert.deepEqual(spans.map(s => +(s / base).toFixed(6)), [0.5, 1, 2]);
   game.cameraMode = 'overview';
   Game.prototype._updateCamera.call(game, 0.4);

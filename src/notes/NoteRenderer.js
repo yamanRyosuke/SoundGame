@@ -146,11 +146,9 @@ function createLabelTexture(key) {
 export class NoteRenderer {
   /**
    * @param {import('../lane/ParallelLanes.js').ParallelLanes} parallelLanes
-   * @param {number} audioDuration - 音源の長さ（秒）
    */
-  constructor(parallelLanes, audioDuration) {
+  constructor(parallelLanes) {
     this.parallelLanes = parallelLanes;
-    this.audioDuration = audioDuration;
 
     // コンテナ
     this.group = new THREE.Group();
@@ -182,16 +180,35 @@ export class NoteRenderer {
   createNotes(chart) {
     // 既存のノーツをクリア
     this.clear();
+    this.addNotes(chart.notes);
+  }
 
-    chart.notes.forEach(note => {
+  /**
+   * ノーツを追加（曲のくり返しで次の回のノーツを足す）
+   * @param {Object[]} notes
+   */
+  addNotes(notes) {
+    notes.forEach(note => {
       const mesh = this._createNoteMesh(note);
       if (mesh) {
         this.group.add(mesh);
         this.noteMeshes.set(note, { mesh, note, label: mesh.getObjectByName('label') });
       }
     });
+  }
 
-    console.log(`NoteRenderer: Created ${this.noteMeshes.size} note meshes`);
+  /**
+   * ノーツを取り除く（くり返しで終わった回のノーツを片づける）
+   * @param {Object[]} notes
+   */
+  removeNotes(notes) {
+    for (const note of notes) {
+      const entry = this.noteMeshes.get(note);
+      if (!entry) continue;
+      this.group.remove(entry.mesh);
+      entry.mesh.traverse(child => { child.geometry?.dispose(); child.material?.dispose(); });
+      this.noteMeshes.delete(note);
+    }
   }
 
   /**
@@ -202,7 +219,7 @@ export class NoteRenderer {
    */
   _createNoteMesh(note) {
     // 時刻から位置を計算
-    const position = this.parallelLanes.getPositionAtTime(note.t, this.audioDuration, note.key);
+    const position = this.parallelLanes.getPositionAtTime(note.t, note.key);
 
     // ノーツ全体を格納するグループ
     const noteGroup = new THREE.Group();
@@ -254,9 +271,12 @@ export class NoteRenderer {
    * @param {import('../chart/Chart.js').Chart} chart
    */
   update(chart, time = 0) {
+    // On a short loop the next lap's notes sit on the same spot; show less
+    // than one lap ahead so they never overlap the current ones.
+    const ahead = Math.min(4, this.parallelLanes.getLapTime() - 0.5);
     chart.notes.forEach(note => {
       const entry = this.noteMeshes.get(note);
-      if (entry) entry.mesh.visible = !note.judged && note.t >= time - 0.3 && note.t <= time + 4;
+      if (entry) entry.mesh.visible = !note.judged && note.t >= time - 0.3 && note.t <= time + ahead;
     });
 
     // エフェクトの更新
@@ -270,7 +290,7 @@ export class NoteRenderer {
    */
   showJudgementEffect(note, judgement) {
     const effect = createJudgementEffect(judgement);
-    effect.group.position.copy(this.parallelLanes.getPositionAtTime(note.t, this.audioDuration, note.key));
+    effect.group.position.copy(this.parallelLanes.getPositionAtTime(note.t, note.key));
     effect.group.position.y += 0.03;
     this.group.add(effect.group);
     this.effects.push({ ...effect, born: performance.now() });

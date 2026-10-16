@@ -1,9 +1,9 @@
 import { GameRenderer } from './GameRenderer.js';
 import { AudioManager } from '../audio/AudioManager.js';
 import { LaneLoader } from '../lane/LaneLoader.js';
-import { PREVIEW_COURSES, getPreviewCourse } from '../lane/PreviewCourses.js';
+import { PREVIEW_COURSES, PLAYABLE_COURSES, getPreviewCourse } from '../lane/PreviewCourses.js';
 import { ArcLengthTable } from '../lane/ArcLengthTable.js';
-import { ParallelLanes } from '../lane/ParallelLanes.js';
+import { ParallelLanes, DEFAULT_SPEED } from '../lane/ParallelLanes.js';
 import { laneForKey } from '../lane/LaneLayout.js';
 import { LaneRenderer } from '../lane/LaneRenderer.js';
 import { PlayerCursor } from '../player/PlayerCursor.js';
@@ -17,6 +17,8 @@ import { StageLibrary } from '../chart/StageLibrary.js';
 import { createStageArchive, readStageArchive, prepareSavedStage } from '../chart/StageArchive.js';
 import { GamepadInput, keyLabel } from '../input/GamepadInput.js';
 import { followFrame, followSpan } from './FollowCamera.js';
+import { CharacterField } from '../characters/CharacterField.js';
+import { RepeatedPlay, REPEAT_OPTIONS, repeatCount } from '../chart/RepeatedPlay.js';
 
 const VIEW_KEY = 'soundgame.view';
 const loadView = () => {
@@ -48,6 +50,10 @@ export class Game {
     this.cameraDistance = Number.isFinite(view.cameraDistance) ? Math.max(0.5, Math.min(2.5, view.cameraDistance)) : 1.5;
     this.distanceChosen = Number.isFinite(view.cameraDistance);
     this.showDevUi = view.devUi !== false;
+    this.travelSpeed = Number.isFinite(view.speed) ? Math.max(2, Math.min(6, view.speed)) : DEFAULT_SPEED;
+    this.speedChosen = Number.isFinite(view.speed);
+    this.repeat = REPEAT_OPTIONS.includes(view.repeat) ? view.repeat : '1';
+    this.play = null;
   }
 
   async init(config) {
@@ -60,6 +66,7 @@ export class Game {
       this.judgeManager = new JudgeManager();
       this.judgeManager.onJudgement((note, judgement, diffMs) => {
         this.noteRenderer.showJudgementEffect(note, judgement);
+        this._spawnCharacter(note, judgement);
         const timing = Number.isFinite(diffMs) ? ` ${diffMs < 0 ? '早い' : '遅い'} ${Math.abs(Math.round(diffMs))} ms` : '';
         this.judgementDisplay.textContent = judgement.toUpperCase() + timing;
         this.judgementDisplay.dataset.judgement = judgement;
@@ -70,9 +77,12 @@ export class Game {
         this._updateScoreDisplay();
       });
       this.originalLane = await LaneLoader.load(config.laneUrl);
-      this._setCourse(PREVIEW_COURSES[0]);
-      this.noteRenderer = new NoteRenderer(this.parallelLanes, 1);
+      this._setCourse(PLAYABLE_COURSES[0]);
+      this.noteRenderer = new NoteRenderer(this.parallelLanes);
       this.renderer.add(this.noteRenderer.getObject());
+      this.characterField = new CharacterField();
+      this.renderer.add(this.characterField.getObject());
+      await this.characterField.load();
       document.addEventListener('keydown', this._boundKeyDown);
       window.addEventListener('gamepadconnected', this._boundPadConnected);
       this._pollPads();
@@ -130,7 +140,7 @@ export class Game {
 
   async _restoreSaved(record) {
     const prepared = await prepareSavedStage(record, [this.originalLane.laneId, ...PREVIEW_COURSES.map(course => course.laneId)]);
-    this._setCourse(getPreviewCourse(prepared.chart.laneId) || this.originalLane, prepared.laneCount);
+    const moved = this._useSavedCourse(prepared.chart, prepared.laneCount);
     this.audioManager.dispose();
     this.audioManager = prepared.audioManager;
     this.musicalProvider.cancel();
@@ -148,6 +158,17 @@ export class Game {
     this.judgeManager.setPreset(options.preset);
     this.stageName.value = record.name;
     this._useChart(prepared.chart);
+    if (moved) this.status.textContent += ` · 片道コースは選べなくなったため「${this.laneData.name}」で開きました`;
+  }
+
+  // Saves from before laps may name a one-way course; notes are timed, so the
+  // same chart plays on the first loop course instead.
+  _useSavedCourse(chart, laneCount) {
+    const saved = getPreviewCourse(chart.laneId);
+    const course = saved?.oneWay ? PLAYABLE_COURSES[0] : saved || this.originalLane;
+    this._setCourse(course, laneCount);
+    chart.laneId = course.laneId;
+    return course !== (saved || this.originalLane);
   }
 
   _download(blob, name) {
@@ -161,10 +182,26 @@ export class Game {
     this.arcLengthTable = new ArcLengthTable(course.points);
     this._setLaneCount(laneCount);
     this.courseSelect.value = course === this.originalLane ? 'original' : course.laneId;
-    const ratio = this.arcLengthTable.getTotalLength() / new ArcLengthTable(this.originalLane.points).getTotalLength();
-    this.courseDescription.textContent = `${course.description || '比較用の元の円コース。'} 元の円の約${ratio.toFixed(1)}倍の長さ。`;
+    this._describeCourse();
     this.renderer.fitCourse(course.points);
     this.panel.querySelector('#zoom').value = '1';
+  }
+
+  _describeCourse() {
+    const lap = this.parallelLanes.getLapTime();
+    this.courseDescription.textContent = `${this.laneData.description || '比較用の小さな円コース。'} 1周 約${lap.toFixed(0)}秒、曲が終わるまで周回します。`;
+  }
+
+  setTravelSpeed(speed) {
+    if (this.isRunning) return;
+    this.travelSpeed = speed;
+    this.speedChosen = true;
+    this.parallelLanes.speed = speed;
+    this.travelSpeedValue.textContent = `${speed.toFixed(1)}`;
+    this._describeCourse();
+    this._saveView();
+    if (this.chart) { this.noteRenderer.createNotes(this.chart); this.noteRenderer.update(this.chart, 0); }
+    this.renderer.render();
   }
 
   setCourse(id) {
@@ -179,7 +216,7 @@ export class Game {
   }
 
   _setLaneCount(count) {
-    const layout = new ParallelLanes(this.arcLengthTable, count);
+    const layout = new ParallelLanes(this.arcLengthTable, count, this.travelSpeed);
     const renderer = new LaneRenderer(layout);
     const cursor = new PlayerCursor(layout.lanes);
     for (const previous of [this.laneRenderer, this.playerCursor]) {
@@ -231,7 +268,7 @@ export class Game {
       return;
     }
     if (!this.isRunning) return;
-    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - age - this.offsetMs / 1000, this.chart);
+    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - age - this.offsetMs / 1000, this.play.chart);
   }
 
   setLaneCount(count) {
@@ -269,7 +306,6 @@ export class Game {
     this.chart = chart;
     this.chart.reset();
     this.audioDuration = this.audioManager.getDuration();
-    this.noteRenderer.audioDuration = this.audioDuration;
     this.noteRenderer.createNotes(chart);
     this.judgeManager.reset();
     this._updateScoreDisplay();
@@ -320,10 +356,12 @@ export class Game {
     try {
       this.chart.reset();
       this.judgeManager.reset();
-      this.noteRenderer.createNotes(this.chart);
+      this.play = new RepeatedPlay(this.chart, this.audioDuration, repeatCount(this.repeat));
+      this.noteRenderer.createNotes(this.play.chart);
+      this.characterField.clear();
       this.result.hidden = true;
       this.judgementDisplay.textContent = '';
-      await this.audioManager.play();
+      await this.audioManager.play(0, { loops: this.play.loops });
       this.isRunning = true;
       this._gameLoop();
     } catch (error) { this.status.textContent = `再生できませんでした: ${error.message}`; }
@@ -331,11 +369,14 @@ export class Game {
   }
 
   stop() {
+    // Endless play only ends here, so it still gets a result.
+    const endedEndless = this.isRunning && this.play?.loops === Infinity;
     this.isRunning = false;
     cancelAnimationFrame(this._animationFrameId);
     this._animationFrameId = null;
     this.audioManager?.stop();
     if (this.renderer?.following) { this.renderer.showOverview(); this.renderer.render(); }
+    if (endedEndless) this._showResult(`エンドレス終了 · ${this.play.cycleAt(this._lastTime ?? 0) + 1}回目まで`);
     this._syncControls();
   }
 
@@ -353,40 +394,57 @@ export class Game {
     if (!['W', 'A', 'S', 'D'].includes(key)) return;
     e.preventDefault();
     this._setInputMode('keyboard');
-    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - this.offsetMs / 1000, this.chart);
+    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - this.offsetMs / 1000, this.play.chart);
   }
 
   _gameLoop() {
     if (!this.isRunning) return;
-    const time = this.audioManager.getCurrentTime();
-    this.judgeManager.processMissedNotes(time - this.offsetMs / 1000, this.chart);
-    this._updatePlayerPosition(Math.min(1, time / this.audioDuration));
-    this._updateCamera(Math.min(1, time / this.audioDuration));
-    this.noteRenderer.update(this.chart, time);
+    const time = this.audioManager.getCurrentTime(), play = this.play;
+    this._lastTime = time;
+    const { added, removed } = play.advance(time);
+    if (added.length) this.noteRenderer.addNotes(added);
+    if (removed.length) this.noteRenderer.removeNotes(removed);
+    this.judgeManager.processMissedNotes(time - this.offsetMs / 1000, play.chart);
+    this._updatePlayerPosition(time);
+    this._updateCamera(time);
+    this.noteRenderer.update(play.chart, time);
+    this.characterField.update(performance.now() / 1000, this.renderer.camera);
     this._updateScoreDisplay();
-    this.timeDisplay.textContent = `${time.toFixed(1)} / ${this.audioDuration.toFixed(1)} 秒`;
+    this.timeDisplay.textContent = this._timeLabel(time);
     if (this.showGuide) this._drawTiming(time - this.offsetMs / 1000);
     this.renderer.render();
-    if (time >= this.audioDuration) {
+    if (time >= play.length) {
       // Finish every remaining note even when the final frame was delayed.
-      this.judgeManager.processMissedNotes(this.audioDuration + 1, this.chart);
-      const r = this.judgeManager.getResult();
+      this.judgeManager.processMissedNotes(play.length + 1, play.chart);
       this.stop();
-      this.result.textContent = `曲終了 · Score ${r.score} · Max Combo ${r.maxCombo}\nPerfect ${r.counts.perfect} / Great ${r.counts.great} / Good ${r.counts.good} / Miss ${r.counts.miss}`;
-      this.result.hidden = false;
-      this._updateScoreDisplay();
+      this._showResult(play.loops > 1 ? `${play.loops}回くり返し終了` : '曲終了');
       return;
     }
     this._animationFrameId = requestAnimationFrame(() => this._gameLoop());
   }
 
-  _updateCamera(progress) {
+  _showResult(title) {
+    const r = this.judgeManager.getResult();
+    this.result.textContent = `${title} · Score ${r.score} · Max Combo ${r.maxCombo}\nPerfect ${r.counts.perfect} / Great ${r.counts.great} / Good ${r.counts.good} / Miss ${r.counts.miss}`;
+    this.result.hidden = false;
+    this._updateScoreDisplay();
+  }
+
+  _timeLabel(time) {
+    const play = this.play, song = this.audioDuration;
+    if (!play || play.loops === 1) return `${time.toFixed(1)} / ${song.toFixed(1)} 秒`;
+    const cycle = play.cycleAt(time), within = time - cycle * song;
+    const count = Number.isFinite(play.loops) ? `${cycle + 1} / ${play.loops}回目` : `${cycle + 1}回目（エンドレス）`;
+    return `${within.toFixed(1)} / ${song.toFixed(1)} 秒 · ${count}`;
+  }
+
+  _updateCamera(time) {
     const now = performance.now(), dt = (now - (this._lastCameraAt ?? now)) / 1000;
     this._lastCameraAt = now;
     if (this.cameraMode === 'overview') return;
-    const total = this.arcLengthTable.getTotalLength();
-    const span = followSpan(total / this.audioDuration) * this.cameraDistance;
-    const { center, forward } = followFrame(this.parallelLanes, total * progress, span, this.cameraMode);
+    const lanes = this.parallelLanes;
+    const span = followSpan(lanes.speed) * this.cameraDistance;
+    const { center, forward } = followFrame(lanes, lanes.getDistanceAtTime(time), span, this.cameraMode);
     this.renderer.follow(center, forward, span, dt);
   }
 
@@ -396,10 +454,7 @@ export class Game {
     if (distance !== undefined) { this.cameraDistance = distance; this.distanceChosen = true; }
     this.showDevUi = devUi;
     this.cameraDistanceValue.textContent = `${this.cameraDistance.toFixed(1)}倍`;
-    if (persist) {
-      const saved = { camera, guide, devUi, ...(this.distanceChosen && { cameraDistance: this.cameraDistance }) };
-      try { localStorage.setItem(VIEW_KEY, JSON.stringify(saved)); } catch { /* preference only */ }
-    }
+    if (persist) this._saveView();
     // Shift+P hides the studio panel and the guide together; the guide checkbox
     // still decides whether the guide returns with the panel.
     const guideShown = guide && devUi;
@@ -414,9 +469,32 @@ export class Game {
     this.renderer?.render();
   }
 
-  _updatePlayerPosition(progress) {
-    const distance = this.arcLengthTable.getTotalLength() * progress;
-    this.playerCursor.setFrame(this.parallelLanes.getFrameAtDistance(distance));
+  _saveView() {
+    const saved = { camera: this.cameraMode, guide: this.showGuide, devUi: this.showDevUi,
+      ...(this.distanceChosen && { cameraDistance: this.cameraDistance }), ...(this.speedChosen && { speed: this.travelSpeed }),
+      repeat: this.repeat };
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify(saved)); } catch { /* preference only */ }
+  }
+
+  // Perfect, Great and Good each send out their own characters beside the course.
+  _spawnCharacter(note, judgement) {
+    if (!this.isRunning || judgement === 'miss') return;
+    const lanes = this.parallelLanes;
+    const halfWidth = (lanes.lanes.at(-1).offset - lanes.lanes[0].offset) / 2 + 0.15;
+    this.characterField.spawn(judgement, lanes.getPositionAtTime(note.t, note.key), this._placeNearCursor(note.t), halfWidth, performance.now() / 1000);
+  }
+
+  // A course-relative spot around the cursor at `time`.
+  _placeNearCursor(time) {
+    const lanes = this.parallelLanes, distance = lanes.getDistanceAtTime(time);
+    return (along, across) => {
+      const frame = lanes.getFrameAtDistance(distance + along);
+      return frame.center.addScaledVector(frame.lateral.normalize(), across);
+    };
+  }
+
+  _updatePlayerPosition(time) {
+    this.playerCursor.setFrame(this.parallelLanes.getFrameAtDistance(this.parallelLanes.getDistanceAtTime(time)));
   }
 
   _updateScoreDisplay() {
@@ -468,8 +546,10 @@ export class Game {
         <div class="row"><button id="export-archive">音楽入りファイルを書出し</button><label class="file-button">音楽入りファイルを読込<input id="archive-file" type="file" accept=".soundstage"></label></div>
         <p class="hint">保存一覧は同じブラウザ・同じURLで使えます。ブラウザのデータ削除に備え、ファイルでも保管できます。保存は毎回新しく追加します。</p>
       </details>
-      <label>ステージの形<select id="course">${PREVIEW_COURSES.map(course => `<option value="${course.laneId}">${course.name}</option>`).join('')}<option value="original">円（比較用）</option></select></label>
+      <label>ステージの形<select id="course">${PLAYABLE_COURSES.map(course => `<option value="${course.laneId}">${course.name}</option>`).join('')}<option value="original">円（比較用）</option></select></label>
       <p id="course-description" class="hint"></p>
+      <label>曲のくり返し<select id="repeat"><option value="1">1回</option><option value="2">2回</option><option value="3">3回</option><option value="endless">エンドレス（停止するまで）</option></select></label>
+      <label>進む速さ <output id="travel-speed-value">3.5</output><input id="travel-speed" type="range" min="2" max="6" step="0.5" value="3.5"></label>
       <label>レーン数<select id="lane-count"><option value="1">1本</option><option value="2">2本</option><option value="3">3本</option><option value="4" selected>4本</option></select></label>
       <p id="lane-mapping" class="hint" role="status"></p>
       <label>音源を選ぶ<input id="audio-file" type="file" accept="audio/*"></label>
@@ -542,6 +622,12 @@ export class Game {
       }).finally(() => { e.target.value = ''; });
     };
     this.courseSelect = q('course'); this.courseDescription = q('course-description');
+    this.travelSpeedInput = q('travel-speed'); this.travelSpeedValue = q('travel-speed-value');
+    this.travelSpeedInput.value = this.travelSpeed;
+    this.travelSpeedValue.textContent = this.travelSpeed.toFixed(1);
+    this.travelSpeedInput.oninput = e => this.setTravelSpeed(Number(e.target.value));
+    q('repeat').value = this.repeat;
+    q('repeat').onchange = e => { this.repeat = e.target.value; this._saveView(); };
     this.courseSelect.onchange = () => this.setCourse(this.courseSelect.value);
     this.laneCountSelect = q('lane-count'); this.laneMapping = q('lane-mapping');
     this.laneCountSelect.onchange = () => this.setLaneCount(Number(this.laneCountSelect.value));
@@ -585,10 +671,10 @@ export class Game {
         if (file.size > 2_000_000) throw new Error('譜面ファイルは2 MB以内にしてください');
         const { chart, offsetMs, laneCount } = parseStage(await file.text(), this.audioManager.meta, this.laneData.laneId,
           [this.originalLane.laneId, ...PREVIEW_COURSES.map(course => course.laneId)]);
-        this._setCourse(getPreviewCourse(chart.laneId) || this.originalLane, laneCount);
+        const moved = this._useSavedCourse(chart, laneCount);
         this.offsetMs = offsetMs; q('offset').value = offsetMs;
         this._useChart(chart);
-        this.status.textContent += ' · 保存譜面を読み込みました';
+        this.status.textContent += moved ? ` · 片道コースは選べなくなったため「${this.laneData.name}」で開きました` : ' · 保存譜面を読み込みました';
       }).finally(() => { e.target.value = ''; });
     };
     this.startButton = document.createElement('button');
@@ -631,7 +717,8 @@ export class Game {
       });
     });
     ctx.fillStyle = '#302d29'; ctx.fillRect(160, 2, 2, 116);
-    for (const note of this.chart?.notes || []) {
+    const notes = (this.isRunning ? this.play?.chart : this.chart)?.notes || [];
+    for (const note of notes) {
       const dt = note.t - time;
       if (note.judged || dt < -0.3 || dt > 3) continue;
       const x = 160 + dt / 3 * (w - 180);
@@ -647,7 +734,7 @@ export class Game {
     document.removeEventListener('keydown', this._boundKeyDown);
     window.removeEventListener('gamepadconnected', this._boundPadConnected);
     cancelAnimationFrame(this._padFrameId);
-    this.noteRenderer?.dispose(); this.laneRenderer?.dispose(); this.playerCursor?.dispose();
+    this.noteRenderer?.dispose(); this.characterField?.dispose(); this.laneRenderer?.dispose(); this.playerCursor?.dispose();
     this.renderer?.dispose(); this.audioManager?.dispose();
     this.stageLibrary.close();
   }

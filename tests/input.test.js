@@ -6,7 +6,7 @@ import { GamepadInput, keyLabel } from '../src/input/GamepadInput.js';
 test('input ignores held-key repeats and form editing, and applies timing offset once', () => {
   const hits = [];
   const game = { isRunning: true, offsetMs: 40, audioManager: { getCurrentTime: () => 2 },
-    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, _setInputMode() {} };
+    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, play: { chart: {} }, _setInputMode() {} };
   const event = { key: 'w', repeat: false, target: { matches: () => false }, preventDefault() {} };
   Game.prototype._onKeyDown.call(game, event);
   Game.prototype._onKeyDown.call(game, { ...event, repeat: true });
@@ -39,7 +39,7 @@ test('Xbox face buttons map to the WASD diamond, once per press, with the pad ag
 test('pad presses judge earlier by their age and Menu toggles play', () => {
   const hits = [], calls = [];
   const game = { isLoaded: true, isRunning: true, offsetMs: 40, audioManager: { getCurrentTime: () => 2 },
-    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {},
+    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, play: { chart: {} },
     _setInputMode: mode => calls.push(mode), stop: () => calls.push('stop'), start: () => calls.push('start') };
   Game.prototype._onPadPress.call(game, 'D', 0.01);
   assert.equal(hits[0][0], 'D');
@@ -55,7 +55,7 @@ test('pad presses judge earlier by their age and Menu toggles play', () => {
 test('Shift+P toggles the studio panel and guide, except while typing text', () => {
   const views = [], hits = [];
   const game = { showDevUi: true, isRunning: true, offsetMs: 0, audioManager: { getCurrentTime: () => 1 },
-    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, _setInputMode() {},
+    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, play: { chart: {} }, _setInputMode() {},
     _setView(view) { views.push(view); this.showDevUi = view.devUi; } };
   const press = (target, extra = {}) => Game.prototype._onKeyDown.call(game,
     { key: 'P', code: 'KeyP', shiftKey: true, repeat: false, target, preventDefault() {}, ...extra });

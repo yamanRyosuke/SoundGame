@@ -6,5 +6,5 @@
 
 ## 使用素材
 - Sound:
-- Image:
+- Image: キャラクター（`public/assets/characters/`）は Creator Goosy「Goosy Sketch Book」の `art/` から
 - Font:

@@ -26,7 +26,7 @@ export const PREVIEW_COURSES = [
     }, 960, true)
   },
   {
-    laneId: 'preview_switchbacks_v1', name: 'つづら折り',
+    laneId: 'preview_switchbacks_v1', name: 'つづら折り', oneWay: true,
     description: '5本の直線をヘアピンで折り返す、片道のロングコース。',
     points: (() => {
       const points = [];
@@ -42,7 +42,7 @@ export const PREVIEW_COURSES = [
     })()
   },
   {
-    laneId: 'preview_spiral_v1', name: 'スパイラル',
+    laneId: 'preview_spiral_v1', name: 'スパイラル', oneWay: true,
     description: '外側から中心へ、約3周かけて巻き込む片道コース。',
     points: sample(t => {
       const a = t * Math.PI * 6, r = 14 - 11 * t;
@@ -58,6 +58,10 @@ export const PREVIEW_COURSES = [
     }, 960, true)
   }
 ];
+
+// The cursor keeps lapping until the song ends, so only closed courses can be
+// picked. One-way courses stay defined so older saves still parse.
+export const PLAYABLE_COURSES = PREVIEW_COURSES.filter(course => !course.oneWay);
 
 export function getPreviewCourse(laneId) {
   return PREVIEW_COURSES.find(course => course.laneId === laneId);

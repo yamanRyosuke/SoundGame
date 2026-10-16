@@ -58,7 +58,12 @@ export class AudioManager {
     this.isLoaded = true;
   }
 
-  async play(offset = 0) {
+  /**
+   * @param {number} [offset] - seconds into the play
+   * @param {{ loops?: number }} [options] - how many times the song plays in a
+   *   row (Infinity: until stopped). The clock keeps counting across repeats.
+   */
+  async play(offset = 0, { loops = 1 } = {}) {
     if (!this.audioBuffer) throw new Error('音源が読み込まれていません');
     if (!this.audioContext) {
       const Context = window.AudioContext || window.webkitAudioContext;
@@ -72,19 +77,24 @@ export class AudioManager {
     this.stop();
     const source = this.audioContext.createBufferSource();
     source.buffer = this.audioBuffer;
+    // Looping the buffer itself repeats without a gap at the seam.
+    source.loop = loops > 1;
     source.connect(this.gainNode);
     this.sourceNode = source;
+    this._loops = loops;
+    this._playLength = this.audioBuffer.duration * loops;
     this._playStartTime = this.audioContext.currentTime - offset;
     this._pausePosition = offset;
     this.isPlaying = true;
     source.onended = () => {
       if (this.sourceNode !== source) return;
-      this._pausePosition = this.audioBuffer.duration;
+      this._pausePosition = this._playLength;
       this.isPlaying = false;
       source.disconnect();
       this.sourceNode = null;
     };
-    source.start(0, offset);
+    source.start(0, offset % this.audioBuffer.duration);
+    if (source.loop && Number.isFinite(this._playLength)) source.stop(this.audioContext.currentTime + this._playLength - offset);
   }
 
   stop() {
@@ -105,9 +115,9 @@ export class AudioManager {
     this._pausePosition = position;
   }
 
-  async resume() { if (!this.isPlaying) await this.play(this._pausePosition); }
+  async resume() { if (!this.isPlaying) await this.play(this._pausePosition, { loops: this._loops }); }
   getCurrentTime() {
-    return this.isPlaying ? Math.min(this.audioBuffer.duration, this.audioContext.currentTime - this._playStartTime) : this._pausePosition;
+    return this.isPlaying ? Math.min(this._playLength, this.audioContext.currentTime - this._playStartTime) : this._pausePosition;
   }
   getDuration() { return this.audioBuffer?.duration || 0; }
   setVolume(value) {
