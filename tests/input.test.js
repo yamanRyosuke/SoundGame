@@ -51,3 +51,21 @@ test('pad presses judge earlier by their age and Menu toggles play', () => {
   assert.equal(hits.length, 1);
   assert.deepEqual(calls, ['pad', 'pad', 'stop', 'pad', 'start', 'pad']);
 });
+
+test('Shift+P toggles the studio panel and guide, except while typing text', () => {
+  const views = [], hits = [];
+  const game = { showDevUi: true, isRunning: true, offsetMs: 0, audioManager: { getCurrentTime: () => 1 },
+    judgeManager: { processKeyInput: (...args) => hits.push(args) }, chart: {}, _setInputMode() {},
+    _setView(view) { views.push(view); this.showDevUi = view.devUi; } };
+  const press = (target, extra = {}) => Game.prototype._onKeyDown.call(game,
+    { key: 'P', code: 'KeyP', shiftKey: true, repeat: false, target, preventDefault() {}, ...extra });
+  const typing = { matches: selector => selector.includes('textarea') };
+  const button = { matches: selector => selector.includes('button') };
+  press(button);
+  press({ matches: () => false });
+  press(typing);
+  press({ matches: () => false }, { repeat: true });
+  press({ matches: () => false }, { ctrlKey: true });
+  assert.deepEqual(views, [{ devUi: false }, { devUi: true }]);
+  assert.equal(hits.length, 0);
+});
