@@ -27,9 +27,10 @@ test('1–4 lanes distribute every key once in balanced, deterministic groups', 
 
 test('four key lanes are equally spaced and assigned consistently on a straight', () => {
   const layout = layoutFor([[0, 0, 0], [0, 0, 10]]);
+  layout.speed = 1;
   assert.deepEqual(LANES.map(lane => lane.key), ['A', 'W', 'S', 'D']);
   for (const time of [0, 1, 3.1, 10]) {
-    const positions = LANES.map(lane => layout.getPositionAtTime(time, 10, lane.key));
+    const positions = LANES.map(lane => layout.getPositionAtTime(time, lane.key));
     positions.forEach(position => close(position.z, time));
     for (let i = 1; i < 4; i++) close(positions[i].distanceTo(positions[i - 1]), LANE_SPACING);
   }
@@ -56,13 +57,14 @@ test('circle lanes retain the same angular progress and meet at the closed seam'
 test('asymmetric bends use shared time even when lane distances differ', () => {
   const layout = layoutFor([[0, 0, 0], [0, 0, 4], [2, 0, 6], [5, 0, 6], [7, 0, 8], [9, 0, 8]]);
   const total = layout.centerline.getTotalLength();
+  layout.speed = total / 100;
   const lengths = LANES.map(lane => new ArcLengthTable(layout.getLanePoints(lane.key).map(p => p.toArray())).getTotalLength());
   assert.ok(Math.max(...lengths) - Math.min(...lengths) > 1);
   for (let i = 0; i <= 100; i++) {
     const distance = total * i / 100;
     const frame = layout.getFrameAtDistance(distance);
     for (const lane of LANES) {
-      const p = layout.getPositionAtTime(i, 100, lane.key);
+      const p = layout.getPositionAtTime(i, lane.key);
       const expected = frame.center.clone().addScaledVector(frame.lateral, lane.offset);
       close(p.distanceTo(expected), 0);
     }
@@ -73,11 +75,12 @@ for (const count of [1, 2, 3, 4]) test(`${count} lanes: ribbons, all four keys, 
   const layout = new ParallelLanes(new ArcLengthTable([[0, 1, 0], [0, 1, 4], [3, 2, 6], [5, 2, 3]]), count);
   const lines = new LaneRenderer(layout);
   assert.equal(lines.group.children.filter(child => child.name.startsWith('Lane_')).length, count);
-  const renderer = new NoteRenderer(layout, 20);
+  layout.speed = layout.centerline.getTotalLength() / 20;
+  const renderer = new NoteRenderer(layout);
   const cursor = new PlayerCursor(layout.lanes);
   assert.equal(cursor.markers.length, count);
   for (const t of [0, 1.7, 8, 12.3, 20]) {
-    cursor.setFrame(layout.getFrameAtDistance(layout.centerline.getDistanceAtTime(t, 20)));
+    cursor.setFrame(layout.getFrameAtDistance(layout.getDistanceAtTime(t)));
     cursor.group.updateMatrixWorld(true);
     const chart = { notes: LANES.map(lane => ({ t, type: 'tap', key: lane.key, judged: false })) };
     renderer.createNotes(chart);

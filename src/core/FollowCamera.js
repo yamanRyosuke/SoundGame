@@ -12,8 +12,8 @@ export function followSpan(speed) {
 export function followFrame(lanes, distance, span, mode = 'chase') {
   const center = lanes.getFrameAtDistance(distance).center;
   if (mode === 'north') return { center, forward: new THREE.Vector3(0, 0, -1) };
-  const total = lanes.centerline.getTotalLength();
-  const forward = lanes.getFrameAtDistance(Math.min(total, distance + span * 0.6)).center.sub(center);
+  const total = lanes.centerline.getTotalLength(), ahead = distance + span * 0.6;
+  const forward = lanes.getFrameAtDistance(lanes.closed ? ahead : Math.min(total, ahead)).center.sub(center);
   forward.y = 0;
   if (forward.lengthSq() < 1e-6) {
     forward.copy(center).sub(lanes.getFrameAtDistance(Math.max(0, distance - span * 0.6)).center);

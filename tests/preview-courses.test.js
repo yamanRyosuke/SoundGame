@@ -25,11 +25,12 @@ test('five long courses have finite, continuous lanes without inverted inner ben
           assert.ok(delta.dot(center.points[i].clone().sub(center.points[i - 1])) > 0, `${course.name}: inverted bend`);
         }
       }
+      layout.speed = center.totalLength / 100;
       for (let i = 0; i <= 100; i++) {
         const frame = layout.getFrameAtDistance(center.totalLength * i / 100);
         for (const key of ['A', 'W', 'S', 'D']) {
           const expected = frame.center.clone().addScaledVector(frame.lateral, layout.laneForKey(key).offset);
-          assert.ok(layout.getPositionAtTime(i, 100, key).distanceTo(expected) < 1e-8);
+          assert.ok(layout.getPositionAtTime(i, key).distanceTo(expected) < 1e-8);
         }
       }
     }
@@ -71,4 +72,37 @@ test('stage files restore another known course, keep legacy circle and reject un
   }
   const unknown = new Chart({ audio, laneId: 'unknown', notes: [] });
   assert.throws(() => parseStage(serializeStage(unknown), audio, 'lane_circle', supported));
+});
+
+test('loop courses keep lapping at a constant speed until the song ends; one-way courses are not offered', async () => {
+  const { PLAYABLE_COURSES } = await import('../src/lane/PreviewCourses.js');
+  const { DEFAULT_SPEED } = await import('../src/lane/ParallelLanes.js');
+  assert.deepEqual(PLAYABLE_COURSES.map(c => c.name), ['ワインディング', 'クローバー', '立体8の字']);
+  for (const course of PLAYABLE_COURSES) {
+    const layout = new ParallelLanes(new ArcLengthTable(course.points), 4);
+    assert.ok(layout.closed, course.name);
+    assert.equal(layout.speed, DEFAULT_SPEED);
+    const lap = layout.getLapTime(), total = layout.centerline.getTotalLength();
+    // Same place one lap later, and still moving at 3 minutes.
+    for (const t of [1, 7.3, 20]) assert.ok(layout.getPositionAtTime(t, 'A').distanceTo(layout.getPositionAtTime(t + lap, 'A')) < 1e-6);
+    assert.ok(Math.abs(layout.getDistanceAtTime(180) - (180 * DEFAULT_SPEED) % total) < 1e-9);
+    assert.ok(layout.getPositionAtTime(180, 'S').distanceTo(layout.getPositionAtTime(180.5, 'S')) > 1);
+  }
+  const oneWay = new ParallelLanes(new ArcLengthTable(PREVIEW_COURSES.find(c => c.oneWay).points), 4);
+  assert.equal(oneWay.getDistanceAtTime(1e6), oneWay.centerline.getTotalLength());
+});
+
+test('a short loop never shows the next lap of notes on top of the current ones', async () => {
+  const { NoteRenderer } = await import('../src/notes/NoteRenderer.js');
+  globalThis.document ??= { createElement: () => ({ getContext: () => ({ clearRect() {}, fillText() {} }) }) };
+  const circle = Array.from({ length: 65 }, (_, i) => [2 * Math.cos(i / 64 * Math.PI * 2), 0, 2 * Math.sin(i / 64 * Math.PI * 2)]);
+  const layout = new ParallelLanes(new ArcLengthTable(circle), 4);
+  const lap = layout.getLapTime();
+  assert.ok(lap < 4);
+  const renderer = new NoteRenderer(layout);
+  const notes = [{ t: 1, key: 'A' }, { t: 1 + lap, key: 'A' }].map(n => ({ ...n, type: 'tap', judged: false }));
+  const chart = { notes };
+  renderer.createNotes(chart);
+  renderer.update(chart, 0.9);
+  assert.deepEqual(notes.map(n => renderer.noteMeshes.get(n).mesh.visible), [true, false]);
 });

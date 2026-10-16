@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { createLaneLayout } from './LaneLayout.js';
 
+// Units per second along the centerline. Close to how the bundled 24-second
+// song felt when one song was stretched over one lap.
+export const DEFAULT_SPEED = 3.5;
+
 /**
  * All four lanes use the CENTER path's arc-length clock. Never build individual
  * arc-length clocks for the offset paths: on asymmetric curves they drift apart.
@@ -8,7 +12,8 @@ import { createLaneLayout } from './LaneLayout.js';
  * places lane lines, notes, effects and the judgement bar at a given music time.
  */
 export class ParallelLanes {
-  constructor(centerline, laneCount = 4) {
+  constructor(centerline, laneCount = 4, speed = DEFAULT_SPEED) {
+    this.speed = speed;
     this.lanes = createLaneLayout(laneCount);
     this.centerline = centerline;
     this.points = centerline.points;
@@ -49,8 +54,21 @@ export class ParallelLanes {
     return bisector.multiplyScalar(Math.min(2, 1 / Math.max(1e-6, bisector.dot(outgoing))));
   }
 
+  // Seconds for one lap at the current speed.
+  getLapTime() {
+    return this.centerline.getTotalLength() / this.speed;
+  }
+
+  // The cursor keeps going for the whole song: closed courses repeat lap after
+  // lap, a one-way course stops at its end.
+  getDistanceAtTime(time) {
+    const total = this.centerline.getTotalLength(), d = Math.max(0, time) * this.speed;
+    return this.closed ? d % total : Math.min(d, total);
+  }
+
   getFrameAtDistance(distance) {
-    const d = Math.max(0, Math.min(distance, this.centerline.getTotalLength()));
+    const total = this.centerline.getTotalLength();
+    const d = this.closed ? ((distance % total) + total) % total : Math.max(0, Math.min(distance, total));
     const i = this.centerline._findSegmentIndex(d);
     const distances = this.centerline.cumulativeDistances;
     const length = distances[i + 1] - distances[i];
@@ -67,8 +85,8 @@ export class ParallelLanes {
     return center.addScaledVector(lateral, this.laneForKey(key).offset);
   }
 
-  getPositionAtTime(time, duration, key) {
-    return this.getPositionAtDistance(this.centerline.getDistanceAtTime(time, duration), key);
+  getPositionAtTime(time, key) {
+    return this.getPositionAtDistance(this.getDistanceAtTime(time), key);
   }
 
   getLanePoints(key) {

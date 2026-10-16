@@ -135,18 +135,6 @@ export class ArcLengthTable {
   }
 
   /**
-   * 時刻から距離を計算（等速移動の場合）
-   * @param {number} time - 現在時刻（秒）
-   * @param {number} totalDuration - 総時間（秒）
-   * @returns {number} 距離
-   */
-  getDistanceAtTime(time, totalDuration) {
-    if (totalDuration <= 0) return 0;
-    const progress = Math.max(0, Math.min(time / totalDuration, 1.0));
-    return this.totalLength * progress;
-  }
-
-  /**
    * デバッグ情報を取得
    * @returns {Object}
    */

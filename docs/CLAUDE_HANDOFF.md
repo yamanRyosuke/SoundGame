@@ -39,7 +39,7 @@ npm run build
 - ブラウザの保存一覧はIndexedDB。同じブラウザ・同じ配信元（ホストとポート）でのみ見える。Gitや別PCへは自動で移らない。移す場合は `.soundstage` を使う。
 - `.artifacts/` のスクリーンショットと検証用音源、`dist/`、`node_modules/` はGit管理外。必要なら各環境で生成する。
 - メロディーは混合音源からの推定で、楽器分離や厳密な採譜ではない。曲ごとの楽しさと実機の音声遅延は、ユーザーの試遊で引き続き調整する。
-- 長いコースも1曲で最後まで進むため、長いほど空間上の移動速度が上がる。
+- （更新）判定バーは一定の速さで進み、曲が終わるまで周回コースを回り続ける。詳細は `docs/musical-chart.md` の「一定速度で周回」。
 - 今回の依頼は実装済み。次の機能追加はまだ指定されていない。まずユーザーが複数曲で試した感想を確認する。
 
 実装の詳細は `docs/musical-chart.md`。主な入口は `src/core/Game.js`、解析は `src/chart/AudioAnalysis.js`、経路同期は `src/lane/ParallelLanes.js`、保存は `src/chart/StageLibrary.js` と `StageArchive.js`、手描き線は `src/lane/PencilMaterial.js`。
