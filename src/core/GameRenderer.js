@@ -29,6 +29,10 @@ export class GameRenderer {
     this.maxZoom = 2.0;
     this._basePosition = { x: 0, y: 8, z: 5 };
     this.target = new THREE.Vector3();
+    this.bottomInset = 165;
+    this.following = false;
+    this._eye = new THREE.Vector3();
+    this._look = new THREE.Vector3();
     this._updateCameraPosition();
     this.camera.lookAt(0, 0, 0);
 
@@ -93,8 +97,8 @@ export class GameRenderer {
   _updateViewport() {
     // Keep the complete preview above the timing strip and left of the studio.
     const width = Math.max(120, window.innerWidth - (window.innerWidth > 700 ? 370 : 32));
-    const height = Math.max(100, window.innerHeight - 330);
-    this.viewport = { x: 16, y: 165, width, height };
+    const height = Math.max(100, window.innerHeight - 165 - this.bottomInset);
+    this.viewport = { x: 16, y: this.bottomInset, width, height };
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     if (this.courseBounds) this._fitCamera();
@@ -104,6 +108,37 @@ export class GameRenderer {
     this.courseBounds = new THREE.Box3().setFromPoints(points.map(p => new THREE.Vector3(...p))).expandByScalar(1.2);
     this.zoomLevel = 1;
     this._fitCamera();
+  }
+
+  // Room below the scene; the timing guide can be hidden to give it back.
+  setBottomInset(pixels) {
+    this.bottomInset = pixels;
+    this._updateViewport();
+  }
+
+  /**
+   * Chase the cursor from behind and above. `span` is how much path should be
+   * in view; position and aim are smoothed so hairpins turn instead of snapping.
+   */
+  follow(center, forward, span, dt) {
+    const look = center.clone().addScaledVector(forward, span * 0.3);
+    const eye = center.clone().addScaledVector(forward, -span * 0.42);
+    eye.y += span * 0.8;
+    if (!this.following) {
+      this.following = true;
+      this._eye.copy(this.camera.position);
+      this._look.copy(this.target);
+    }
+    const k = 1 - Math.exp(-Math.min(0.1, dt) * 5);
+    this._eye.lerp(eye, k);
+    this._look.lerp(look, k);
+    this.camera.position.copy(this._eye);
+    this.camera.lookAt(this._look);
+  }
+
+  showOverview() {
+    this.following = false;
+    this._updateCameraPosition();
   }
 
   _fitCamera() {
@@ -119,7 +154,7 @@ export class GameRenderer {
       distance = Math.max(distance, Math.abs(p.x) / tanH + p.dot(direction), Math.abs(p.dot(up)) / tanV + p.dot(direction));
     }
     this._basePosition = direction.multiplyScalar(distance * 1.05);
-    this._updateCameraPosition();
+    if (!this.following) this._updateCameraPosition();
   }
 
   /**

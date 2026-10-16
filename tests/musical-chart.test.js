@@ -100,3 +100,57 @@ test('stage files preserve lane count and original keys; legacy stages default t
     assert.throws(() => serializeStage(chart, 0, laneCount));
   }
 });
+
+function drumLoop(duration) {
+  let seed = 7;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const samples = new Float32Array(duration * rate);
+  // A sustained chord under the drums, like a real mix.
+  for (let i = 0; i < samples.length; i++) samples[i] = 0.08 * [262, 330, 392].reduce((sum, hz) => sum + Math.sin(2 * Math.PI * hz * i / rate), 0);
+  const hits = [];
+  const sounds = {
+    kick: t => Math.sin(2 * Math.PI * (50 * t + 70 / 30 * (1 - Math.exp(-30 * t)))) * Math.exp(-t * 18),
+    snare: t => (0.7 * (random() * 2 - 1) + 0.5 * Math.sin(2 * Math.PI * 190 * t)) * Math.exp(-t * 22),
+    hat: (() => { let last = 0; return t => { const n = random() * 2 - 1, v = n - last; last = n; return 0.6 * v * Math.exp(-t * 60); }; })()
+  };
+  const pattern = ['kick', 'hat', 'snare', 'hat', 'kick', 'kick', 'snare', 'hat'];
+  for (let beat = 0, t = 0.6; t < duration - 0.5; beat++, t += 0.25) {
+    if ((beat * 5) % 7 === 3) continue;
+    const kind = pattern[beat % pattern.length];
+    hits.push({ t, kind });
+    const amplitude = 0.5 + 0.4 * random();
+    for (let j = 0; j < rate * 0.2; j++) {
+      const i = Math.round(t * rate) + j;
+      if (i < samples.length) samples[i] += amplitude * Math.min(1, j / 40) * sounds[kind](j / rate);
+    }
+  }
+  return { samples, hits };
+}
+
+test('timbre mode gives each drum sound its own consistent key', () => {
+  const { samples, hits } = drumLoop(16);
+  const analysis = analyzeAudio([samples], rate);
+  for (const difficulty of ['easy', 'normal', 'hard']) {
+    const notes = composeNotes(analysis, { difficulty, focus: 'timbre' });
+    assert.deepEqual(notes, composeNotes(analysis, { difficulty, focus: 'timbre' }));
+    assert.ok(notes.length >= 10, `${difficulty}: ${notes.length}`);
+    const keysBySound = {};
+    for (const note of notes) {
+      const hit = hits.find(h => Math.abs(h.t - note.t) < 0.045);
+      assert.ok(hit, `note ${note.t} is not on a drum hit`);
+      (keysBySound[hit.kind] ??= []).push(note.key);
+    }
+    const main = {};
+    for (const [kind, keys] of Object.entries(keysBySound)) {
+      main[kind] = keys.sort((a, b) => keys.filter(k => k === b).length - keys.filter(k => k === a).length)[0];
+      assert.ok(keys.filter(k => k === main[kind]).length / keys.length >= 0.9, `${difficulty} ${kind}: ${keys}`);
+    }
+    assert.equal(new Set(Object.values(main)).size, Object.keys(main).length, `${difficulty}: ${JSON.stringify(main)}`);
+    const rule = DIFFICULTIES[difficulty];
+    for (let i = 1; i < notes.length; i++) {
+      const delta = notes[i].t - notes[i - 1].t;
+      assert.ok(delta + 0.0001 >= rule.gap);
+      if (notes[i].key === notes[i - 1].key) assert.ok(delta + 0.0001 >= rule.sameKeyGap);
+    }
+  }
+});

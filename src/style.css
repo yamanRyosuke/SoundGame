@@ -90,6 +90,16 @@ canvas {
 .game-hud strong { letter-spacing: 0.12em; font-size: 13px; color: #476f60; }
 #judgement { font-size: 25px; min-height: 45px; font-weight: bold; }
 #judgement[data-judgement="miss"] { color: #ad405d; }
+#judgement { transform-origin: left center; }
+#judgement[data-judgement="perfect"] { color: #996122; }
+#judgement[data-judgement="great"] { color: #39754e; }
+#judgement[data-judgement="good"] { color: #376b9b; }
+#judgement.pop[data-judgement="perfect"] { animation: judge-pop 0.35s ease-out; --pop: 1.45; }
+#judgement.pop[data-judgement="great"] { animation: judge-pop 0.3s ease-out; --pop: 1.25; }
+#judgement.pop[data-judgement="good"] { animation: judge-pop 0.2s ease-out; --pop: 1.08; }
+#judgement.pop[data-judgement="miss"] { animation: judge-shake 0.35s ease-out; }
+@keyframes judge-pop { from { transform: scale(var(--pop)); } to { transform: scale(1); } }
+@keyframes judge-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 .studio-panel { position: fixed; z-index: 5; right: 20px; top: 20px; bottom: 165px; width: 310px; padding: 20px; overflow-y: auto; border: 1px solid #d8d3c9; border-radius: 16px; background: #fffefbf2; color: #3c3832; box-shadow: 0 12px 40px #54452d0d; }
 .studio-panel h1 { font-size: 20px; margin-bottom: 8px; }
 .studio-panel label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin: 10px 0; flex: 1; min-width: 0; }
@@ -141,3 +151,6 @@ canvas {
   outline: 2px solid #476f60;
   outline-offset: 2px;
 }
+
+.studio-panel label.check { flex-direction: row; align-items: center; gap: 8px; }
+.guide-hidden .studio-panel { bottom: 20px; }

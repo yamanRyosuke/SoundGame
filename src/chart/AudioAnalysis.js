@@ -1,6 +1,8 @@
 // Pure DSP, shared by the browser worker and synthetic-audio tests.
 const SIZE = 1024;
 const TARGET_RATE = 22050;
+// Octave bands for the onset timbre fingerprint (Hz upper edges; last band is open).
+const TIMBRE_EDGES = [100, 200, 400, 800, 1600, 3200, 6400];
 const percentile = (values, p) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor((sorted.length - 1) * p)] || 0;
@@ -57,6 +59,13 @@ export function analyzeAudio(channels, sampleRate, onProgress = () => {}) {
   const frames = Math.ceil(samples.length / hop);
   const flux = Array.from({ length: 3 }, () => new Float32Array(frames));
   const rms = new Float32Array(frames), pitches = new Float32Array(frames);
+  const timbreFlux = Array.from({ length: TIMBRE_EDGES.length + 1 }, () => new Float32Array(frames));
+  const binBand = Uint8Array.from({ length: SIZE / 2 }, (_, k) => {
+    const band = TIMBRE_EDGES.findIndex(edge => k * rate / SIZE < edge);
+    return band < 0 ? TIMBRE_EDGES.length : band;
+  });
+  const bandBins = new Float64Array(timbreFlux.length);
+  for (let k = 2; k < SIZE / 2; k++) bandBins[binBand[k]]++;
   const previous = new Float32Array(SIZE / 2);
   const real = new Float64Array(SIZE), imag = new Float64Array(SIZE);
   const window = Float64Array.from({ length: SIZE }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (SIZE - 1)));
@@ -76,7 +85,9 @@ export function analyzeAudio(channels, sampleRate, onProgress = () => {}) {
       const magnitude = Math.hypot(real[k], imag[k]) / SIZE;
       const compressed = Math.log1p(100 * magnitude);
       const band = hz < 250 ? 0 : hz < 2000 ? 1 : 2;
-      flux[band][f] += Math.max(0, compressed - previous[k]);
+      const rise = Math.max(0, compressed - previous[k]);
+      flux[band][f] += rise;
+      timbreFlux[binBand[k]][f] += rise / (bandBins[binBand[k]] || 1);
       previous[k] = compressed;
       if (hz >= 180 && hz <= 1800) {
         totalMagnitude += magnitude;
@@ -110,7 +121,7 @@ export function analyzeAudio(channels, sampleRate, onProgress = () => {}) {
     let attack = f;
     while (attack > Math.max(0, f - 4) && curves[dominant][attack - 1] > bands[dominant] * 0.15 && curves[dominant][attack - 1] <= curves[dominant][attack]) attack--;
     const t = Math.max(0, attack * step);
-    const event = { t, strength, bands, pitch: pitches[Math.min(frames - 1, f + 2)], energy: rms[f] / (maximum || 1) };
+    const event = { t, strength, bands, pitch: pitches[Math.min(frames - 1, f + 2)], energy: rms[f] / (maximum || 1), timbre: onsetTimbre(timbreFlux, f) };
     const last = events.at(-1);
     if (last && t - last.t < 0.065) {
       if (strength > last.strength) events[events.length - 1] = event;
@@ -118,7 +129,15 @@ export function analyzeAudio(channels, sampleRate, onProgress = () => {}) {
   }
   const tempo = estimateTempo(events);
   onProgress(1);
-  return { version: 1, duration, events, ...tempo };
+  return { version: 2, duration, events, ...tempo };
+}
+
+// Where in the spectrum the new energy of an attack lands. Only the rise is
+// measured, so sustained pads or vocals under a snare do not change its shape.
+function onsetTimbre(timbreFlux, f) {
+  const shape = timbreFlux.map(band => band[f - 1] + band[f] + band[f + 1]);
+  const total = shape.reduce((sum, v) => sum + v, 0) || 1;
+  return shape.map(v => Number(Math.sqrt(v / total).toFixed(4)));
 }
 
 function estimateTempo(events) {
@@ -150,24 +169,32 @@ export const DIFFICULTIES = {
   hard: { gap: 0.115, sameKeyGap: 0.23, maxPerSecond: 7, threshold: 0.12 }
 };
 
+export const FOCUSES = ['balanced', 'rhythm', 'melody', 'timbre'];
+
 export function composeNotes(analysis, { difficulty = 'normal', focus = 'balanced' } = {}) {
   const preset = DIFFICULTIES[difficulty];
-  if (!preset || !['balanced', 'rhythm', 'melody'].includes(focus)) throw new Error('譜面設定が不正です');
+  if (!preset || !FOCUSES.includes(focus)) throw new Error('譜面設定が不正です');
   const weights = focus === 'rhythm' ? [1.5, 0.5, 1.2] : focus === 'melody' ? [0.4, 1.8, 0.4] : [1, 1.1, 0.8];
   const candidates = analysis.events.filter(e => e.t >= 0.5 && e.t <= analysis.duration - 0.25).map(e => ({
     ...e, score: e.strength * (0.4 + e.energy) * (0.5 + Math.max(...e.bands.map((v, i) => v * weights[i])))
   }));
   const reference = percentile(candidates.map(e => e.score), 0.65);
+  // Timbre mode fixes each sound's key before selection, so spacing rules thin
+  // out notes instead of moving a snare to some other key.
+  const sameTimbre = focus === 'timbre';
+  if (sameTimbre) assignTimbreKeys(candidates.filter(e => e.score >= reference * DIFFICULTIES.hard.threshold));
   const accepted = [];
   // Select musical accents first. Enforce spacing and a sliding one-second density cap.
   for (const event of candidates.sort((a, b) => b.score - a.score || a.t - b.t)) {
     if (event.score < reference * preset.threshold) continue;
     if (accepted.some(e => Math.abs(e.t - event.t) < preset.gap)) continue;
+    if (sameTimbre && (!event.key || accepted.some(e => e.key === event.key && Math.abs(e.t - event.t) < preset.sameKeyGap))) continue;
     const nearby = accepted.filter(e => Math.abs(e.t - event.t) < 1).map(e => e.t).concat(event.t).sort((a, b) => a - b);
     if (nearby.some((t, i) => i >= preset.maxPerSecond && t - nearby[i - preset.maxPerSecond] < 1)) continue;
     accepted.push(event);
   }
   accepted.sort((a, b) => a.t - b.t);
+  if (sameTimbre) return accepted.map(e => ({ t: Number(e.t.toFixed(4)), type: 'tap', key: e.key }));
   const keys = ['A', 'S', 'W', 'D'];
   const notes = [];
   let previousPitch = 0, keyIndex = 0, repeated = 0;
@@ -187,4 +214,77 @@ export function composeNotes(analysis, { difficulty = 'normal', focus = 'balance
     notes.push({ t: Number(event.t.toFixed(4)), type: 'tap', key: keys[keyIndex] });
   }
   return notes;
+}
+
+// Keys in lane order, so lower-pitched sound groups sit to the left.
+const TIMBRE_KEYS = { 1: ['A'], 2: ['A', 'D'], 3: ['A', 'S', 'D'], 4: ['A', 'W', 'S', 'D'] };
+
+function timbreOf(event) {
+  if (event.timbre) return event.timbre;
+  const total = event.bands.reduce((sum, v) => sum + Math.max(0, v), 0) || 1;
+  return event.bands.map(v => Math.sqrt(Math.max(0, v) / total));
+}
+
+const distance = (a, b) => {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
+  return sum;
+};
+const brightness = vector => vector.reduce((sum, v, i) => sum + v * v * i, 0);
+
+function kMeans(points, k) {
+  // Deterministic start: spread the seeds across the dark-to-bright ordering.
+  const order = points.map((p, i) => i).sort((a, b) => brightness(points[a]) - brightness(points[b]) || a - b);
+  let centers = Array.from({ length: k }, (_, j) => [...points[order[Math.floor((j + 0.5) * order.length / k)]]]);
+  const labels = new Int8Array(points.length).fill(-1);
+  for (let iteration = 0; iteration < 40; iteration++) {
+    let changed = false;
+    points.forEach((p, i) => {
+      let best = 0;
+      for (let j = 1; j < k; j++) if (distance(p, centers[j]) < distance(p, centers[best])) best = j;
+      if (labels[i] !== best) { labels[i] = best; changed = true; }
+    });
+    if (!changed) break;
+    centers = centers.map((center, j) => {
+      const members = points.filter((p, i) => labels[i] === j);
+      return members.length ? center.map((v, d) => members.reduce((sum, p) => sum + p[d], 0) / members.length) : center;
+    });
+  }
+  return { labels, centers };
+}
+
+function silhouette(points, labels, k) {
+  const stride = Math.max(1, Math.ceil(points.length / 600));
+  const sample = points.map((p, i) => i).filter(i => i % stride === 0);
+  let total = 0;
+  for (const i of sample) {
+    const sums = new Float64Array(k), counts = new Float64Array(k);
+    for (const j of sample) {
+      if (i === j) continue;
+      sums[labels[j]] += Math.sqrt(distance(points[i], points[j]));
+      counts[labels[j]]++;
+    }
+    const own = counts[labels[i]] ? sums[labels[i]] / counts[labels[i]] : 0;
+    let other = Infinity;
+    for (let c = 0; c < k; c++) if (c !== labels[i] && counts[c]) other = Math.min(other, sums[c] / counts[c]);
+    if (Number.isFinite(other) && counts[labels[i]]) total += (other - own) / (Math.max(own, other) || 1);
+  }
+  return total / sample.length;
+}
+
+// Group attacks by timbre and give every group one key. More groups are kept
+// unless they separate the sounds clearly worse than fewer groups would.
+function assignTimbreKeys(events) {
+  if (!events.length) return;
+  const points = events.map(timbreOf);
+  const options = [];
+  for (let k = 2; k <= Math.min(4, points.length); k++) {
+    const result = kMeans(points, k);
+    options.push({ k, ...result, quality: silhouette(points, result.labels, k) });
+  }
+  const best = Math.max(...options.map(o => o.quality));
+  const chosen = options.filter(o => o.quality >= best - 0.05).at(-1) ?? { k: 1, labels: new Int8Array(points.length), centers: [points[0]] };
+  const rank = chosen.centers.map((center, j) => j).sort((a, b) => brightness(chosen.centers[a]) - brightness(chosen.centers[b]));
+  const keys = TIMBRE_KEYS[chosen.k];
+  events.forEach((event, i) => { event.key = keys[rank.indexOf(chosen.labels[i])]; });
 }

@@ -15,6 +15,13 @@ import { MusicalChartProvider } from '../chart/MusicalChartProvider.js';
 import { serializeStage, parseStage } from '../chart/StageFile.js';
 import { StageLibrary } from '../chart/StageLibrary.js';
 import { createStageArchive, readStageArchive, prepareSavedStage } from '../chart/StageArchive.js';
+import { GamepadInput, keyLabel } from '../input/GamepadInput.js';
+import { followFrame, followSpan } from './FollowCamera.js';
+
+const VIEW_KEY = 'soundgame.view';
+const loadView = () => {
+  try { return JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; } catch { return {}; }
+};
 
 export class Game {
   constructor(container) {
@@ -30,6 +37,14 @@ export class Game {
     this.libraryReady = false;
     this._boundKeyDown = this._onKeyDown.bind(this);
     this._animationFrameId = null;
+    this.inputMode = 'keyboard';
+    this.gamepad = new GamepadInput((key, age) => this._onPadPress(key, age));
+    this._boundPadConnected = () => this._pollPads();
+    this._padFrameId = null;
+    const view = loadView();
+    this.cameraMode = ['chase', 'north', 'overview'].includes(view.camera) ? view.camera : 'chase';
+    this.showGuide = view.guide !== false;
+    this.cameraDistance = Number.isFinite(view.distance) ? Math.max(0.5, Math.min(2.5, view.distance)) : 1;
   }
 
   async init(config) {
@@ -37,6 +52,7 @@ export class Game {
     this._createUI();
     await this._runTask(async () => {
       this.renderer = new GameRenderer(this.container);
+      this._setView();
       this.audioManager = new AudioManager();
       this.judgeManager = new JudgeManager();
       this.judgeManager.onJudgement((note, judgement, diffMs) => {
@@ -44,6 +60,10 @@ export class Game {
         const timing = Number.isFinite(diffMs) ? ` ${diffMs < 0 ? '早い' : '遅い'} ${Math.abs(Math.round(diffMs))} ms` : '';
         this.judgementDisplay.textContent = judgement.toUpperCase() + timing;
         this.judgementDisplay.dataset.judgement = judgement;
+        // Restart the CSS reaction even when the same judgement repeats.
+        this.judgementDisplay.classList.remove('pop');
+        void this.judgementDisplay.offsetWidth;
+        this.judgementDisplay.classList.add('pop');
         this._updateScoreDisplay();
       });
       this.originalLane = await LaneLoader.load(config.laneUrl);
@@ -51,6 +71,8 @@ export class Game {
       this.noteRenderer = new NoteRenderer(this.parallelLanes, 1);
       this.renderer.add(this.noteRenderer.getObject());
       document.addEventListener('keydown', this._boundKeyDown);
+      window.addEventListener('gamepadconnected', this._boundPadConnected);
+      this._pollPads();
       this.isLoaded = true;
       // Keep saved stages available even if the bundled song fails to load.
       await this._refreshLibrary();
@@ -168,11 +190,45 @@ export class Game {
     this.renderer.add(cursor.getObject());
     if (this.noteRenderer) this.noteRenderer.parallelLanes = layout;
     this.laneCountSelect.value = String(count);
-    this.laneMapping.textContent = 'レーン順：' + layout.lanes.map(lane => lane.label).join(' ｜ ');
-    this.laneLegend.innerHTML = layout.lanes.map(lane => '<span class="lane-group">' + lane.keys.map(key =>
-      `<span style="color:#${laneForKey(key).color.toString(16).padStart(6, '0')}">${key}</span>`).join(' ') + '</span>').join('');
+    this._renderKeyLabels();
     this.timingCanvas.setAttribute('aria-label', `${count}レーンの次に押すキーとタイミング`);
     this._updatePlayerPosition(0);
+  }
+
+  _renderKeyLabels() {
+    const label = key => keyLabel(key, this.inputMode);
+    const lanes = this.parallelLanes.lanes;
+    this.laneMapping.textContent = 'レーン順：' + lanes.map(lane => lane.keys.map(label).join(' / ')).join(' ｜ ') +
+      (this.inputMode === 'pad' ? '（コントローラー）' : '');
+    this.laneLegend.innerHTML = lanes.map(lane => '<span class="lane-group">' + lane.keys.map(key =>
+      `<span style="color:#${laneForKey(key).color.toString(16).padStart(6, '0')}">${label(key)}</span>`).join(' ') + '</span>').join('');
+    this.stopButton.textContent = this.inputMode === 'pad' ? '停止 / Menu' : '停止 / Esc';
+  }
+
+  _setInputMode(mode) {
+    if (mode === this.inputMode) return;
+    this.inputMode = mode;
+    this._renderKeyLabels();
+    this.noteRenderer?.setLabels(key => keyLabel(key, mode));
+    if (!this.isRunning && this.chart) { this._drawTiming(this._timingTime ?? 0); this.renderer.render(); }
+  }
+
+  _pollPads() {
+    cancelAnimationFrame(this._padFrameId);
+    this.gamepad.poll();
+    const connected = [...(navigator.getGamepads?.() ?? [])].some(pad => pad?.connected);
+    this._padFrameId = connected ? requestAnimationFrame(() => this._pollPads()) : null;
+  }
+
+  _onPadPress(key, age) {
+    if (!this.isLoaded) return;
+    this._setInputMode('pad');
+    if (key === 'MENU') {
+      if (this.isRunning) this.stop(); else this.start();
+      return;
+    }
+    if (!this.isRunning) return;
+    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - age - this.offsetMs / 1000, this.chart);
   }
 
   setLaneCount(count) {
@@ -276,6 +332,7 @@ export class Game {
     cancelAnimationFrame(this._animationFrameId);
     this._animationFrameId = null;
     this.audioManager?.stop();
+    if (this.renderer?.following) { this.renderer.showOverview(); this.renderer.render(); }
     this._syncControls();
   }
 
@@ -286,6 +343,7 @@ export class Game {
     if (key === 'ESCAPE') { this.stop(); return; }
     if (!['W', 'A', 'S', 'D'].includes(key)) return;
     e.preventDefault();
+    this._setInputMode('keyboard');
     this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - this.offsetMs / 1000, this.chart);
   }
 
@@ -294,10 +352,11 @@ export class Game {
     const time = this.audioManager.getCurrentTime();
     this.judgeManager.processMissedNotes(time - this.offsetMs / 1000, this.chart);
     this._updatePlayerPosition(Math.min(1, time / this.audioDuration));
+    this._updateCamera(Math.min(1, time / this.audioDuration));
     this.noteRenderer.update(this.chart, time);
     this._updateScoreDisplay();
     this.timeDisplay.textContent = `${time.toFixed(1)} / ${this.audioDuration.toFixed(1)} 秒`;
-    this._drawTiming(time - this.offsetMs / 1000);
+    if (this.showGuide) this._drawTiming(time - this.offsetMs / 1000);
     this.renderer.render();
     if (time >= this.audioDuration) {
       // Finish every remaining note even when the final frame was delayed.
@@ -312,6 +371,28 @@ export class Game {
     this._animationFrameId = requestAnimationFrame(() => this._gameLoop());
   }
 
+  _updateCamera(progress) {
+    const now = performance.now(), dt = (now - (this._lastCameraAt ?? now)) / 1000;
+    this._lastCameraAt = now;
+    if (this.cameraMode === 'overview') return;
+    const total = this.arcLengthTable.getTotalLength();
+    const span = followSpan(total / this.audioDuration) * this.cameraDistance;
+    const { center, forward } = followFrame(this.parallelLanes, total * progress, span, this.cameraMode);
+    this.renderer.follow(center, forward, span, dt);
+  }
+
+  _setView({ camera = this.cameraMode, guide = this.showGuide, distance = this.cameraDistance } = {}) {
+    this.cameraMode = camera;
+    this.showGuide = guide;
+    this.cameraDistance = distance;
+    this.cameraDistanceValue.textContent = `${distance.toFixed(1)}倍`;
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ camera, guide, distance })); } catch { /* preference only */ }
+    this.timingStrip.hidden = !guide;
+    this.container.classList.toggle('guide-hidden', !guide);
+    this.renderer?.setBottomInset(guide ? 165 : 16);
+    this.renderer?.render();
+  }
+
   _updatePlayerPosition(progress) {
     const distance = this.arcLengthTable.getTotalLength() * progress;
     this.playerCursor.setFrame(this.parallelLanes.getFrameAtDistance(distance));
@@ -324,6 +405,8 @@ export class Game {
   _syncControls() {
     if (!this.panel) return;
     this.panel.querySelectorAll('input, select, button').forEach(el => { el.disabled = this.isBusy || this.isRunning || !this.isLoaded; });
+    // Camera distance stays adjustable mid-song so it can be tuned while watching.
+    this.cameraDistanceInput.disabled = !this.isLoaded;
     this.cancelButton.disabled = false;
     this.startButton.disabled = this.isBusy || this.isRunning || !this.chart?.notes.length;
     this.startButton.hidden = this.isRunning;
@@ -372,7 +455,7 @@ export class Game {
       <label>譜面の作り方<select id="provider"><option value="musical">音源を解析</option><option value="auto">等間隔（練習用）</option><option value="fixed">サンプル譜面</option></select></label>
       <div id="musical-settings" class="row">
         <label>譜面の難易度<select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></label>
-        <label>拾う音<select id="focus"><option value="balanced">バランス</option><option value="rhythm">リズム重視</option><option value="melody">メロディー重視</option></select></label>
+        <label>拾う音<select id="focus"><option value="balanced">バランス</option><option value="rhythm">リズム重視</option><option value="melody">メロディー重視</option><option value="timbre">音色で統一</option></select></label>
       </div>
       <div id="manual-settings" class="row" hidden>
         <label>BPM<input id="bpm" type="number" min="60" max="300" value="120"></label>
@@ -391,7 +474,14 @@ export class Game {
         <label>判定の厳しさ<select id="preset"><option value="loose">Loose</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></label>
         <label>入力タイミング補正（ms）<input id="offset" type="number" min="-250" max="250" step="5" value="0"></label>
         <p class="hint">音に合わせて押しても早すぎる判定になる場合はマイナス、遅すぎる場合はプラスへ。</p>
-        <label>レーンの拡大<input id="zoom" type="range" min="0.3" max="2" step="0.1" value="1"></label>
+        <label>全体表示の拡大<input id="zoom" type="range" min="0.3" max="2" step="0.1" value="1"></label>
+      </details>
+      <details class="camera-settings" open><summary>カメラ</summary>
+        <label>プレイ中のカメラ<select id="camera-mode"><option value="chase">現在地を追う（進行方向が上）</option><option value="north">現在地を追う（向きは固定）</option><option value="overview">コース全体を表示</option></select></label>
+        <label>カメラの距離 <output id="camera-distance-value">1.0倍</output><input id="camera-distance" type="range" min="0.5" max="2.5" step="0.1" value="1"></label>
+        <p class="hint">左で近く大きく、右で遠く広く。プレイ中も動かせます。</p>
+        <label class="check"><input id="show-guide" type="checkbox">画面下の譜面ガイドを表示</label>
+        <p class="hint">ガイドを消すと、上のコースだけで遊べます。</p>
       </details>`;
     this.container.append(this.panel);
     const q = id => this.panel.querySelector('#' + id);
@@ -453,6 +543,16 @@ export class Game {
       e.target.value = this.offsetMs;
     };
     q('zoom').oninput = e => { this.renderer.setZoom(Number(e.target.value)); this.renderer.render(); };
+    q('camera-mode').value = this.cameraMode;
+    q('camera-mode').onchange = e => this._setView({ camera: e.target.value });
+    this.cameraDistanceInput = q('camera-distance');
+    this.cameraDistanceValue = q('camera-distance-value');
+    this.cameraDistanceInput.value = this.cameraDistance;
+    this.cameraDistanceInput.oninput = e => this._setView({ distance: Number(e.target.value) });
+    // Hand the keys back to the game after dragging the slider mid-song.
+    this.cameraDistanceInput.onchange = e => { if (this.isRunning) e.target.blur(); };
+    q('show-guide').checked = this.showGuide;
+    q('show-guide').onchange = e => this._setView({ guide: e.target.checked });
     this.exportButton.onclick = () => {
       const blob = new Blob([serializeStage(this.chart, this.offsetMs, this.laneCount)], { type: 'application/json' });
       this._download(blob, `${this.audioManager.meta.name.replace(/\.[^.]+$/, '')}-${this.chart.generation?.difficulty || 'chart'}.json`);
@@ -477,8 +577,9 @@ export class Game {
     this.stopButton.onclick = () => this.stop(); this.stopButton.hidden = true;
     this.result = document.createElement('div'); this.result.className = 'result'; this.result.hidden = true;
     const timing = document.createElement('section'); timing.className = 'timing-strip';
-    timing.innerHTML = '<p>目印が判定バーと重なったら、表示された文字のキーを押す</p><canvas width="1000" height="120" aria-label="次に押すキーとタイミング"></canvas>';
+    timing.innerHTML = '<p>目印が判定バーと重なったら、表示された文字のキー（コントローラーではボタン）を押す</p><canvas width="1000" height="120" aria-label="次に押すキーとタイミング"></canvas>';
     this.timingCanvas = timing.querySelector('canvas');
+    this.timingStrip = timing;
     this.container.append(this.startButton, this.stopButton, this.result, timing);
   }
 
@@ -495,6 +596,7 @@ export class Game {
 
   _drawTiming(time) {
     const ctx = this.timingCanvas.getContext('2d'), w = this.timingCanvas.width;
+    this._timingTime = time;
     ctx.clearRect(0, 0, w, 120);
     ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     this.parallelLanes.lanes.forEach((lane, i) => {
@@ -503,7 +605,7 @@ export class Game {
       ctx.globalAlpha = 0.3; ctx.fillRect(125, y, w - 125, 1); ctx.globalAlpha = 1;
       lane.keys.forEach((key, k) => {
         ctx.fillStyle = '#' + laneForKey(key).color.toString(16).padStart(6, '0');
-        ctx.fillText(key, 60 + (k - (lane.keys.length - 1) / 2) * 26, y);
+        ctx.fillText(keyLabel(key, this.inputMode), 60 + (k - (lane.keys.length - 1) / 2) * 26, y);
       });
     });
     ctx.fillStyle = '#302d29'; ctx.fillRect(160, 2, 2, 116);
@@ -514,13 +616,15 @@ export class Game {
       const lane = laneForKey(note.key), row = this.parallelLanes.laneForKey(note.key).index;
       const y = (row + 0.5) * 120 / this.laneCount;
       ctx.fillStyle = '#' + lane.color.toString(16).padStart(6, '0'); ctx.fillRect(x - 13, y - 12, 26, 24);
-      ctx.fillStyle = '#ffffff'; ctx.fillText(note.key, x, y);
+      ctx.fillStyle = '#ffffff'; ctx.fillText(keyLabel(note.key, this.inputMode), x, y);
     }
   }
 
   dispose() {
     this.stop(); this.musicalProvider.cancel();
     document.removeEventListener('keydown', this._boundKeyDown);
+    window.removeEventListener('gamepadconnected', this._boundPadConnected);
+    cancelAnimationFrame(this._padFrameId);
     this.noteRenderer?.dispose(); this.laneRenderer?.dispose(); this.playerCursor?.dispose();
     this.renderer?.dispose(); this.audioManager?.dispose();
     this.stageLibrary.close();

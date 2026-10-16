@@ -28,7 +28,9 @@ export class ParallelLanes {
       tangent.y = 0;
       if (tangent.lengthSq() > 1e-12) {
         tangent.normalize();
-        return new THREE.Vector3(tangent.z, 0, -tangent.x);
+        // Points right of travel, so A (negative offset) is the leftmost lane
+        // as seen from behind the cursor, matching the key and pad layout.
+        return new THREE.Vector3(-tangent.z, 0, tangent.x);
       }
     }
     return null;

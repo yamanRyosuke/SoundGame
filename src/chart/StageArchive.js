@@ -1,5 +1,6 @@
 import { AudioManager } from '../audio/AudioManager.js';
 import { parseStage } from './StageFile.js';
+import { FOCUSES } from './AudioAnalysis.js';
 
 const MAGIC = 'SNDSTG01';
 const MAX_AUDIO = 100 * 1024 * 1024;
@@ -43,7 +44,7 @@ export function savedOptions(options = {}) {
     preset: pick('preset', ['loose', 'normal', 'hard'], 'normal'),
     provider: pick('provider', ['musical', 'auto', 'fixed'], 'musical'),
     difficulty: pick('difficulty', ['easy', 'normal', 'hard'], 'normal'),
-    focus: pick('focus', ['balanced', 'rhythm', 'melody'], 'balanced'),
+    focus: pick('focus', FOCUSES, 'balanced'),
     bpm: Number.isFinite(options?.bpm) && options.bpm >= 60 && options.bpm <= 300 ? options.bpm : 120,
     density: pick('density', ['1', '2', '4'], '1')
   };

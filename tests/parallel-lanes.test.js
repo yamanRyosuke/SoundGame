@@ -49,7 +49,8 @@ test('circle lanes retain the same angular progress and meet at the closed seam'
   }
   for (const lane of LANES) close(layout.getPositionAtDistance(0, lane.key).distanceTo(layout.getPositionAtDistance(total, lane.key)), 0);
   const start = LANES.map(lane => layout.getPositionAtDistance(0, lane.key).length());
-  assert.ok(start.every((radius, i) => i === 0 || radius > start[i - 1]));
+  // A is left of travel; this circle turns right, so A is the outer lane.
+  assert.ok(start.every((radius, i) => i === 0 || radius < start[i - 1]));
 });
 
 test('asymmetric bends use shared time even when lane distances differ', () => {
@@ -88,7 +89,7 @@ for (const count of [1, 2, 3, 4]) test(`${count} lanes: ribbons, all four keys, 
       const marker = cursor.markers[assignedLane.index].getWorldPosition(new THREE.Vector3());
       close(p.x, marker.x); close(p.z, marker.z); close(marker.y - p.y, 0.05);
       renderer.showJudgementEffect(note, 'perfect');
-      const effect = renderer.effects.at(-1).mesh.position;
+      const effect = renderer.effects.at(-1).group.position;
       close(effect.x, p.x); close(effect.z, p.z); close(effect.y - p.y, 0.01);
 
       // The actual rendered ribbon's center at each vertex is the keyed path.
