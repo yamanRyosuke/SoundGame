@@ -44,7 +44,10 @@ export class Game {
     const view = loadView();
     this.cameraMode = ['chase', 'north', 'overview'].includes(view.camera) ? view.camera : 'chase';
     this.showGuide = view.guide !== false;
-    this.cameraDistance = Number.isFinite(view.distance) ? Math.max(0.5, Math.min(2.5, view.distance)) : 1;
+    // Only a distance the player picked is remembered, so the default can change.
+    this.cameraDistance = Number.isFinite(view.cameraDistance) ? Math.max(0.5, Math.min(2.5, view.cameraDistance)) : 1.5;
+    this.distanceChosen = Number.isFinite(view.cameraDistance);
+    this.showDevUi = view.devUi !== false;
   }
 
   async init(config) {
@@ -52,7 +55,7 @@ export class Game {
     this._createUI();
     await this._runTask(async () => {
       this.renderer = new GameRenderer(this.container);
-      this._setView();
+      this._setView({ persist: false });
       this.audioManager = new AudioManager();
       this.judgeManager = new JudgeManager();
       this.judgeManager.onJudgement((note, judgement, diffMs) => {
@@ -337,6 +340,12 @@ export class Game {
   }
 
   _onKeyDown(e) {
+    if (e.shiftKey && e.code === 'KeyP' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        !e.target?.matches('input:not([type=range]):not([type=checkbox]):not([type=file]), textarea')) {
+      e.preventDefault();
+      this._setView({ devUi: !this.showDevUi });
+      return;
+    }
     if (e.target?.matches('input, select, textarea, button') || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toUpperCase();
     if (!this.isRunning) return;
@@ -381,15 +390,27 @@ export class Game {
     this.renderer.follow(center, forward, span, dt);
   }
 
-  _setView({ camera = this.cameraMode, guide = this.showGuide, distance = this.cameraDistance } = {}) {
+  _setView({ camera = this.cameraMode, guide = this.showGuide, distance, devUi = this.showDevUi, persist = true } = {}) {
     this.cameraMode = camera;
     this.showGuide = guide;
-    this.cameraDistance = distance;
-    this.cameraDistanceValue.textContent = `${distance.toFixed(1)}倍`;
-    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ camera, guide, distance })); } catch { /* preference only */ }
-    this.timingStrip.hidden = !guide;
-    this.container.classList.toggle('guide-hidden', !guide);
-    this.renderer?.setBottomInset(guide ? 165 : 16);
+    if (distance !== undefined) { this.cameraDistance = distance; this.distanceChosen = true; }
+    this.showDevUi = devUi;
+    this.cameraDistanceValue.textContent = `${this.cameraDistance.toFixed(1)}倍`;
+    if (persist) {
+      const saved = { camera, guide, devUi, ...(this.distanceChosen && { cameraDistance: this.cameraDistance }) };
+      try { localStorage.setItem(VIEW_KEY, JSON.stringify(saved)); } catch { /* preference only */ }
+    }
+    // Shift+P hides the studio panel and the guide together; the guide checkbox
+    // still decides whether the guide returns with the panel.
+    const guideShown = guide && devUi;
+    if (!devUi && this.panel.contains(document.activeElement)) document.activeElement.blur();
+    this.panel.hidden = !devUi;
+    this.devUiHint.hidden = devUi;
+    this.timingStrip.hidden = !guideShown;
+    this.container.classList.toggle('guide-hidden', !guideShown);
+    this.container.classList.toggle('dev-ui-hidden', !devUi);
+    this.renderer?.setPanelVisible(devUi);
+    this.renderer?.setBottomInset(guideShown ? 165 : 16);
     this.renderer?.render();
   }
 
@@ -425,17 +446,18 @@ export class Game {
   _createUI() {
     const hud = document.createElement('div');
     hud.className = 'game-hud';
-    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div class="lane-legend"></div><div id="judgement" aria-live="off"></div>';
+    hud.innerHTML = '<strong>ONE STROKE / SOUNDGAME</strong><div id="score"></div><div id="time"></div><div class="lane-legend"></div><div id="judgement" aria-live="off"></div><p class="dev-ui-hint" hidden>Shift + P でパネルを表示</p>';
     this.container.append(hud);
     this.scoreDisplay = hud.querySelector('#score');
     this.timeDisplay = hud.querySelector('#time');
     this.judgementDisplay = hud.querySelector('#judgement');
     this.laneLegend = hud.querySelector('.lane-legend');
+    this.devUiHint = hud.querySelector('.dev-ui-hint');
     this.panel = document.createElement('aside');
     this.panel.className = 'studio-panel';
     this.panel.innerHTML = `
       <h1>曲からステージを作る</h1>
-      <p class="hint">音の変化を拾って、押しやすい譜面へ。</p>
+      <p class="hint">音の変化を拾って、押しやすい譜面へ。Shift + P で、このパネルと下の譜面ガイドを隠せます。</p>
       <details class="stage-library" open>
         <summary id="library-summary">保存したステージ（0）</summary>
         <label>ステージ名<input id="stage-name" maxlength="100" placeholder="曲名や難易度など"></label>
@@ -478,7 +500,7 @@ export class Game {
       </details>
       <details class="camera-settings" open><summary>カメラ</summary>
         <label>プレイ中のカメラ<select id="camera-mode"><option value="chase">現在地を追う（進行方向が上）</option><option value="north">現在地を追う（向きは固定）</option><option value="overview">コース全体を表示</option></select></label>
-        <label>カメラの距離 <output id="camera-distance-value">1.0倍</output><input id="camera-distance" type="range" min="0.5" max="2.5" step="0.1" value="1"></label>
+        <label>カメラの距離 <output id="camera-distance-value">1.5倍</output><input id="camera-distance" type="range" min="0.5" max="2.5" step="0.1" value="1.5"></label>
         <p class="hint">左で近く大きく、右で遠く広く。プレイ中も動かせます。</p>
         <label class="check"><input id="show-guide" type="checkbox">画面下の譜面ガイドを表示</label>
         <p class="hint">ガイドを消すと、上のコースだけで遊べます。</p>

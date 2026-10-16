@@ -30,6 +30,7 @@ export class GameRenderer {
     this._basePosition = { x: 0, y: 8, z: 5 };
     this.target = new THREE.Vector3();
     this.bottomInset = 165;
+    this.panelVisible = true;
     this.following = false;
     this._eye = new THREE.Vector3();
     this._look = new THREE.Vector3();
@@ -96,7 +97,7 @@ export class GameRenderer {
 
   _updateViewport() {
     // Keep the complete preview above the timing strip and left of the studio.
-    const width = Math.max(120, window.innerWidth - (window.innerWidth > 700 ? 370 : 32));
+    const width = Math.max(120, window.innerWidth - (this.panelVisible && window.innerWidth > 700 ? 370 : 32));
     const height = Math.max(100, window.innerHeight - 165 - this.bottomInset);
     this.viewport = { x: 16, y: this.bottomInset, width, height };
     this.camera.aspect = width / height;
@@ -108,6 +109,12 @@ export class GameRenderer {
     this.courseBounds = new THREE.Box3().setFromPoints(points.map(p => new THREE.Vector3(...p))).expandByScalar(1.2);
     this.zoomLevel = 1;
     this._fitCamera();
+  }
+
+  // The studio panel can be hidden (Shift+P) to give the scene the full width.
+  setPanelVisible(visible) {
+    this.panelVisible = visible;
+    this._updateViewport();
   }
 
   // Room below the scene; the timing guide can be hidden to give it back.
