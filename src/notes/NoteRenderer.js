@@ -180,16 +180,35 @@ export class NoteRenderer {
   createNotes(chart) {
     // 既存のノーツをクリア
     this.clear();
+    this.addNotes(chart.notes);
+  }
 
-    chart.notes.forEach(note => {
+  /**
+   * ノーツを追加（曲のくり返しで次の回のノーツを足す）
+   * @param {Object[]} notes
+   */
+  addNotes(notes) {
+    notes.forEach(note => {
       const mesh = this._createNoteMesh(note);
       if (mesh) {
         this.group.add(mesh);
         this.noteMeshes.set(note, { mesh, note, label: mesh.getObjectByName('label') });
       }
     });
+  }
 
-    console.log(`NoteRenderer: Created ${this.noteMeshes.size} note meshes`);
+  /**
+   * ノーツを取り除く（くり返しで終わった回のノーツを片づける）
+   * @param {Object[]} notes
+   */
+  removeNotes(notes) {
+    for (const note of notes) {
+      const entry = this.noteMeshes.get(note);
+      if (!entry) continue;
+      this.group.remove(entry.mesh);
+      entry.mesh.traverse(child => { child.geometry?.dispose(); child.material?.dispose(); });
+      this.noteMeshes.delete(note);
+    }
   }
 
   /**

@@ -18,6 +18,7 @@ import { createStageArchive, readStageArchive, prepareSavedStage } from '../char
 import { GamepadInput, keyLabel } from '../input/GamepadInput.js';
 import { followFrame, followSpan } from './FollowCamera.js';
 import { CharacterField } from '../characters/CharacterField.js';
+import { RepeatedPlay, REPEAT_OPTIONS, repeatCount } from '../chart/RepeatedPlay.js';
 
 const VIEW_KEY = 'soundgame.view';
 const loadView = () => {
@@ -51,6 +52,8 @@ export class Game {
     this.showDevUi = view.devUi !== false;
     this.travelSpeed = Number.isFinite(view.speed) ? Math.max(2, Math.min(6, view.speed)) : DEFAULT_SPEED;
     this.speedChosen = Number.isFinite(view.speed);
+    this.repeat = REPEAT_OPTIONS.includes(view.repeat) ? view.repeat : '1';
+    this.play = null;
   }
 
   async init(config) {
@@ -265,7 +268,7 @@ export class Game {
       return;
     }
     if (!this.isRunning) return;
-    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - age - this.offsetMs / 1000, this.chart);
+    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - age - this.offsetMs / 1000, this.play.chart);
   }
 
   setLaneCount(count) {
@@ -353,11 +356,12 @@ export class Game {
     try {
       this.chart.reset();
       this.judgeManager.reset();
-      this.noteRenderer.createNotes(this.chart);
+      this.play = new RepeatedPlay(this.chart, this.audioDuration, repeatCount(this.repeat));
+      this.noteRenderer.createNotes(this.play.chart);
       this.characterField.clear();
       this.result.hidden = true;
       this.judgementDisplay.textContent = '';
-      await this.audioManager.play();
+      await this.audioManager.play(0, { loops: this.play.loops });
       this.isRunning = true;
       this._gameLoop();
     } catch (error) { this.status.textContent = `再生できませんでした: ${error.message}`; }
@@ -365,11 +369,14 @@ export class Game {
   }
 
   stop() {
+    // Endless play only ends here, so it still gets a result.
+    const endedEndless = this.isRunning && this.play?.loops === Infinity;
     this.isRunning = false;
     cancelAnimationFrame(this._animationFrameId);
     this._animationFrameId = null;
     this.audioManager?.stop();
     if (this.renderer?.following) { this.renderer.showOverview(); this.renderer.render(); }
+    if (endedEndless) this._showResult(`エンドレス終了 · ${this.play.cycleAt(this._lastTime ?? 0) + 1}回目まで`);
     this._syncControls();
   }
 
@@ -387,32 +394,48 @@ export class Game {
     if (!['W', 'A', 'S', 'D'].includes(key)) return;
     e.preventDefault();
     this._setInputMode('keyboard');
-    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - this.offsetMs / 1000, this.chart);
+    this.judgeManager.processKeyInput(key, this.audioManager.getCurrentTime() - this.offsetMs / 1000, this.play.chart);
   }
 
   _gameLoop() {
     if (!this.isRunning) return;
-    const time = this.audioManager.getCurrentTime();
-    this.judgeManager.processMissedNotes(time - this.offsetMs / 1000, this.chart);
+    const time = this.audioManager.getCurrentTime(), play = this.play;
+    this._lastTime = time;
+    const { added, removed } = play.advance(time);
+    if (added.length) this.noteRenderer.addNotes(added);
+    if (removed.length) this.noteRenderer.removeNotes(removed);
+    this.judgeManager.processMissedNotes(time - this.offsetMs / 1000, play.chart);
     this._updatePlayerPosition(time);
     this._updateCamera(time);
-    this.noteRenderer.update(this.chart, time);
+    this.noteRenderer.update(play.chart, time);
     this.characterField.update(performance.now() / 1000, this.renderer.camera);
     this._updateScoreDisplay();
-    this.timeDisplay.textContent = `${time.toFixed(1)} / ${this.audioDuration.toFixed(1)} 秒`;
+    this.timeDisplay.textContent = this._timeLabel(time);
     if (this.showGuide) this._drawTiming(time - this.offsetMs / 1000);
     this.renderer.render();
-    if (time >= this.audioDuration) {
+    if (time >= play.length) {
       // Finish every remaining note even when the final frame was delayed.
-      this.judgeManager.processMissedNotes(this.audioDuration + 1, this.chart);
-      const r = this.judgeManager.getResult();
+      this.judgeManager.processMissedNotes(play.length + 1, play.chart);
       this.stop();
-      this.result.textContent = `曲終了 · Score ${r.score} · Max Combo ${r.maxCombo}\nPerfect ${r.counts.perfect} / Great ${r.counts.great} / Good ${r.counts.good} / Miss ${r.counts.miss}`;
-      this.result.hidden = false;
-      this._updateScoreDisplay();
+      this._showResult(play.loops > 1 ? `${play.loops}回くり返し終了` : '曲終了');
       return;
     }
     this._animationFrameId = requestAnimationFrame(() => this._gameLoop());
+  }
+
+  _showResult(title) {
+    const r = this.judgeManager.getResult();
+    this.result.textContent = `${title} · Score ${r.score} · Max Combo ${r.maxCombo}\nPerfect ${r.counts.perfect} / Great ${r.counts.great} / Good ${r.counts.good} / Miss ${r.counts.miss}`;
+    this.result.hidden = false;
+    this._updateScoreDisplay();
+  }
+
+  _timeLabel(time) {
+    const play = this.play, song = this.audioDuration;
+    if (!play || play.loops === 1) return `${time.toFixed(1)} / ${song.toFixed(1)} 秒`;
+    const cycle = play.cycleAt(time), within = time - cycle * song;
+    const count = Number.isFinite(play.loops) ? `${cycle + 1} / ${play.loops}回目` : `${cycle + 1}回目（エンドレス）`;
+    return `${within.toFixed(1)} / ${song.toFixed(1)} 秒 · ${count}`;
   }
 
   _updateCamera(time) {
@@ -448,7 +471,8 @@ export class Game {
 
   _saveView() {
     const saved = { camera: this.cameraMode, guide: this.showGuide, devUi: this.showDevUi,
-      ...(this.distanceChosen && { cameraDistance: this.cameraDistance }), ...(this.speedChosen && { speed: this.travelSpeed }) };
+      ...(this.distanceChosen && { cameraDistance: this.cameraDistance }), ...(this.speedChosen && { speed: this.travelSpeed }),
+      repeat: this.repeat };
     try { localStorage.setItem(VIEW_KEY, JSON.stringify(saved)); } catch { /* preference only */ }
   }
 
@@ -524,6 +548,7 @@ export class Game {
       </details>
       <label>ステージの形<select id="course">${PLAYABLE_COURSES.map(course => `<option value="${course.laneId}">${course.name}</option>`).join('')}<option value="original">円（比較用）</option></select></label>
       <p id="course-description" class="hint"></p>
+      <label>曲のくり返し<select id="repeat"><option value="1">1回</option><option value="2">2回</option><option value="3">3回</option><option value="endless">エンドレス（停止するまで）</option></select></label>
       <label>進む速さ <output id="travel-speed-value">3.5</output><input id="travel-speed" type="range" min="2" max="6" step="0.5" value="3.5"></label>
       <label>レーン数<select id="lane-count"><option value="1">1本</option><option value="2">2本</option><option value="3">3本</option><option value="4" selected>4本</option></select></label>
       <p id="lane-mapping" class="hint" role="status"></p>
@@ -601,6 +626,8 @@ export class Game {
     this.travelSpeedInput.value = this.travelSpeed;
     this.travelSpeedValue.textContent = this.travelSpeed.toFixed(1);
     this.travelSpeedInput.oninput = e => this.setTravelSpeed(Number(e.target.value));
+    q('repeat').value = this.repeat;
+    q('repeat').onchange = e => { this.repeat = e.target.value; this._saveView(); };
     this.courseSelect.onchange = () => this.setCourse(this.courseSelect.value);
     this.laneCountSelect = q('lane-count'); this.laneMapping = q('lane-mapping');
     this.laneCountSelect.onchange = () => this.setLaneCount(Number(this.laneCountSelect.value));
@@ -690,7 +717,8 @@ export class Game {
       });
     });
     ctx.fillStyle = '#302d29'; ctx.fillRect(160, 2, 2, 116);
-    for (const note of this.chart?.notes || []) {
+    const notes = (this.isRunning ? this.play?.chart : this.chart)?.notes || [];
+    for (const note of notes) {
       const dt = note.t - time;
       if (note.judged || dt < -0.3 || dt > 3) continue;
       const x = 160 + dt / 3 * (w - 180);
